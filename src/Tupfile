@@ -1,0 +1,7 @@
+include_rules
+
+CFLAGS += "-I../vendor/snappy"
+
+: foreach *.cpp |> !cc |>
+: foreach ../vendor/snappy/snappy.cc ../vendor/snappy/snappy-sinksource.cc ../vendor/snappy/snappy-stubs-internal.cc |> !cc |>
+: *.o |> ar rcs %o %f |> libsynkafka.a

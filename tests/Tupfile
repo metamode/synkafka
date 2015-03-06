@@ -1,0 +1,10 @@
+include_rules
+
+CFLAGS += -I../vendor/gtest/include -I../src
+
+: foreach ../vendor/gtest/src/*.cc |> !cc |>
+
+: foreach *.cpp |> !cc |> 
+: *.o ../src/libsynkafka.a |> g++ $(CFLAGS) %f -o %o |> synkafka_test
+
+: synkafka_test |> ./synkafka_test |>
