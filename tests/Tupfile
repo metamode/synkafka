@@ -1,10 +1,11 @@
 include_rules
 
-CFLAGS += -I../vendor/gtest/include -I../src
+CFLAGS += -I../vendor/gtest/include -I../vendor/gtest -I../src -lz
 
-: foreach ../vendor/gtest/src/*.cc |> !cc |>
+: foreach ../vendor/gtest/src/*.cc |> !cc |> {gtest_o}
+: {gtest_o} |> ar rcs %o %f |> libgtest.a
 
-: foreach *.cpp |> !cc |> 
-: *.o ../src/libsynkafka.a |> g++ $(CFLAGS) %f -o %o |> synkafka_test
+: foreach protocol/*.cpp |> !cc |> {test_o}
+: {test_o} libgtest.a ../src/libsynkafka.a |> g++ $(CFLAGS) %f -o %o |> synkafka_test
 
 : synkafka_test |> ./synkafka_test |>
