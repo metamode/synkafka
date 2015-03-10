@@ -6,9 +6,9 @@
 
 If you want a C/C++ Kafka client use [librdkafka](https://github.com/edenhill/librdkafka).
 
-This library is **incomplete** and **slow**.
+This library is **incomplete** and potentially **slow**.
 
-It's purpose is as a low-level, simplistic implementation of the Kafka 0.8 protocol which allows
+It's purpose is as a low-level, simplistic implementation of the Kafka 0.8 (producer) protocol which allows
 specific use-cases more control over how they produce and the transactional/error handling semantics.
 
 The motivating case is wanting to write a [Facebook Scribe](https://github.com/facebookarchive/scribe) Store that writes to Kafka cluster in a similar
@@ -23,6 +23,11 @@ we can fail the Store and put it into disk-spooling mode. This reduces throughpu
 
 We do take care to take advantage of Kafka's pipelining in the protocol though such that multiple stores cna be sending batches to same broker
 on single connection at same time.
+
+== Limitations
+
+ * Only some of the API is implemented currently - only enough to discover where partitions are and produce to them.
+ * API is low-level and requires external work (queuing, multithreading) to get good performance.
 
 == Usage
 
