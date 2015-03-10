@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include <string>
 #include <sstream>
 
@@ -15,7 +16,7 @@ namespace synkafka {
 class PacketCodec
 {
 public:
-	typedef enum {ERR_NONE, ERR_MEM, ERR_INVALID_VALUE, ERR_COMPRESS_FAIL, ERR_TRUNCATED, ERR_CHECKSUM_FAIL} err_t;
+	typedef enum {ERR_NONE, ERR_MEM, ERR_INVALID_VALUE, ERR_COMPRESS_FAIL, ERR_TRUNCATED, ERR_CHECKSUM_FAIL, ERR_LOGIC} err_t;
 
 	// Methods to read/write primative types
 	virtual void io(int8_t& value) = 0;
@@ -37,11 +38,13 @@ public:
 	virtual size_t start_length() = 0;
 	virtual void   end_length(size_t field_offset) = 0;
 
+	virtual bool is_writer() const = 0;
+
 	// Template member that proxies to externally defined codec methods for each specific protocol struct
 	template<typename T>
-	void io(T* type)
+	void io(T& type)
 	{
-		kafka_proto_io(this, type);
+		kafka_proto_io(*this, type);
 	}
 
 	size_t get_cursor() const { return cursor_; };
@@ -89,6 +92,15 @@ public:
 	size_t start_length() override;
 	void   end_length(size_t field_offset) override;
 
+	bool is_writer() const override { return true; };
+
+	// Template member that proxies to externally defined codec methods for each specific protocol struct
+	template<typename T>
+	void io(T& type)
+	{
+		kafka_proto_io(*this, type);
+	}
+
 	const slice get_as_slice(bool with_length_prefix);
 
 private:
@@ -119,11 +131,48 @@ public:
 	size_t start_length() override;
 	void   end_length(size_t field_offset) override;
 
+	bool is_writer() const override { return false; };
+
+	// Template member that proxies to externally defined codec methods for each specific protocol struct
+	template<typename T>
+	void io(T& type)
+	{
+		kafka_proto_io(*this, type);
+	}
+
 private:
 	shared_buffer_t buff_;
 
 	bool can_read(size_t bytes);
 };
 
+
+// Templates for common io methods for std::deque
+// Since we can't partially specialise io member function templates directly
+template<typename T>
+void  kafka_proto_io(PacketCodec& p, std::deque<T>& type)
+{
+	if (p.is_writer()) {
+		// Encode length as int32_t
+		int32_t size = type.size();
+		p.io(size);
+		for (T& t : type) {
+			p.io(t);
+		}
+	} else {
+		// Decode length as int32_t
+		int32_t size = 0;
+		p.io(size);
+		for (; size > 0; --size) {
+			T element;
+			p.io(element);
+			if (p.ok()) {
+				type.push_back(std::move(element));
+			} else {
+				return;
+			}
+		}
+	}
+}
 
 }

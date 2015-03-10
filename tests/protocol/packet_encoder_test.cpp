@@ -10,7 +10,7 @@ using namespace synkafka;
 
 TEST(Protocol, PacketEncoderPrimatives) 
 {
-	slice expected("\x00\x00\x00\x2b" 						// i32 Length prefix of whole packet (43)
+	slice expected("\x00\x00\x00\x31" 						// i32 Length prefix of whole packet (49)
 				   "\x0c" 									// i8 = 12
 				   "\x0b\xcd" 								// i16 = 3021
 				   "\x3a\xde\x68\xb1" 						// i32 = 987654321
@@ -19,7 +19,9 @@ TEST(Protocol, PacketEncoderPrimatives)
 				   "Hello World"
 				   "\x00\x00\x00\x0b"						// Bytes i32 length prefix (11)
 				   "Hello World"
-				  ,47);
+				   "\xFF\xFF"								// Null string prefix
+				   "\xFF\xFF\xFF\xFF"						// Null Bytes prefix
+				  ,53);
 
 	PacketEncoder pe(128);
 
@@ -37,8 +39,12 @@ TEST(Protocol, PacketEncoderPrimatives)
 
 	std::string str("Hello World");
 	pe.io(str);
-
 	pe.io_bytes(str, COMP_None);
+
+	// Empty string should encode as null (length -1)
+	std::string null_str("");
+	pe.io(null_str);
+	pe.io_bytes(null_str, COMP_None);
 
 	ASSERT_TRUE(pe.ok());
 

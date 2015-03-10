@@ -18,7 +18,9 @@ TEST(Protocol, PacketDecoderPrimatives)
 									"Hello World"
 									"\x00\x00\x00\x0b"						// Bytes i32 length prefix (11)
 									"Hello World"
-								   ,43);
+				   					"\xFF\xFF"								// Null string prefix
+				   					"\xFF\xFF\xFF\xFF"						// Null Bytes prefix
+								   ,49);
 
 	PacketDecoder pd(input);
 
@@ -50,6 +52,14 @@ TEST(Protocol, PacketDecoderPrimatives)
 	pd.io_bytes(str, COMP_None);
 	ASSERT_TRUE(pd.ok());
 	EXPECT_EQ("Hello World", str);	
+
+	pd.io(str);
+	ASSERT_TRUE(pd.ok());
+	EXPECT_EQ("", str);
+
+	pd.io_bytes(str, COMP_None);
+	ASSERT_TRUE(pd.ok());
+	EXPECT_EQ("", str);	
 }
 
 TEST(Protocol, PacketDecoderCRC)

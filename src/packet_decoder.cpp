@@ -58,6 +58,12 @@ void PacketDecoder::io(std::string& value)
 	int16_t len = 0;
 	io(len);
 
+	// -1 length used for "null" value
+	if (ok() && len == -1) {
+		value = "";
+		return;
+	}
+
 	if (!can_read(len)) return;
 
 	value = std::move(std::string(reinterpret_cast<char *>(&buff_->at(cursor_)), len));
@@ -69,6 +75,12 @@ void PacketDecoder::io_bytes(std::string& value, CompressionType ctype)
 	// Reat the length prefix
 	int32_t len = 0;
 	io(len);
+
+	// -1 length used for "null" value
+	if (ok() && len == -1) {
+		value = "";
+		return;
+	}
 
 	if (!can_read(len)) return;
 
@@ -176,23 +188,23 @@ void   PacketDecoder::end_crc(size_t field_offset)
 	if (given_crc32 != calculated_crc32) {
 		set_err(ERR_CHECKSUM_FAIL)
 			<< "CRC32 did no match. Calculated: " << calculated_crc32 
-			<< " expected " << given_crc32;
+			<< " expected " << given_crc32
+			<< " at message starting at offset " << field_offset
+			<< " with length " << cursor_ - field_offset;
 	}
 }
 
 size_t PacketDecoder::start_length()
 {
 	auto start = cursor_;
-	// Advance cursor past CRC
 	cursor_ += sizeof(int32_t);
 	return start;
 }
 
 void   PacketDecoder::end_length(size_t field_offset)
 {
-	// No op... we could check that we read the same number of bytes
-	// that the length prefix said we had but not sure what issue is.
-	// If we didn't then we should already be in error state...
+	// No op. checking on read seems pointless. Few places it's needed
+	// had to read and hack it in a different way.
 }
 
 bool PacketDecoder::can_read(size_t bytes)

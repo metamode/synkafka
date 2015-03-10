@@ -67,10 +67,20 @@ void PacketEncoder::io(std::string& value)
 
 	// Write i16 length prefix, note that this moves cursor
 	int16_t len = value.size();
+
+	// Empty strings encode as "null" with -1 length prefix
+	if (len == 0) {
+		len = -1;
+	}
+
 	io(len);
 
 	// Check we are still OK
 	if (!ok()) return;
+
+	if (len < 0) {
+		return;
+	}
 
 	// Write value
 	std::memcpy(&buff_[cursor_], value.data(), value.size());
@@ -95,10 +105,20 @@ void PacketEncoder::io_bytes(std::string& value, CompressionType ctype)
 
 			// Write i32 length prefix, note that this moves cursor
 			int32_t len = value.size();
+
+			// Empty bytes encode as "null" with -1 length prefix
+			if (len == 0) {
+				len = -1;
+			}
+
 			io(len);
 
 			// Check we are still OK
 			if (!ok()) return;
+			
+			if (len < 0) {
+				return;
+			}
 
 			// Write value
 			std::memcpy(&buff_[cursor_], value.data(), value.size());
