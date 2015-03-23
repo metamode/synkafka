@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cstring> // memcpy
 #include <limits>
+#include <iostream>
 
 #include "crc32.h"
 #include "portable_endian.h"
@@ -54,7 +55,19 @@ void PacketEncoder::io(int64_t& value)
 	cursor_ += sizeof(int64_t);
 }
 
+void PacketEncoder::io(std::error_code& value)
+{
+	int16_t err = static_cast<int16_t>(value.value());
+	io(err);
+}
+
 void PacketEncoder::io(std::string& value)
+{
+	slice v(value);
+	io(v);
+}
+
+void PacketEncoder::io(slice& value)
 {
 	if (!ok()) return;
 	if (value.size() > std::numeric_limits<int16_t>::max()) {
@@ -88,6 +101,12 @@ void PacketEncoder::io(std::string& value)
 }
 
 void PacketEncoder::io_bytes(std::string& value, CompressionType ctype)
+{
+	slice v(value);
+	io_bytes(v, ctype);
+}
+
+void PacketEncoder::io_bytes(slice& value, CompressionType ctype)
 {
 	if (!ok()) return;
 
@@ -224,6 +243,9 @@ void   PacketEncoder::end_crc(size_t field_offset)
 {
 	if (!ok()) return;
 
+	if (!(buff_.size() > field_offset + sizeof(int32_t))) {
+		std::cout << "[          ] HALP, about to abort, " << field_offset << " offset with buff length " << buff_.size() << std::endl;
+	}
 	assert(buff_.size() > field_offset + sizeof(int32_t));
 	assert(cursor_ > field_offset + sizeof(int32_t));
 
@@ -275,16 +297,28 @@ const slice PacketEncoder::get_as_slice(bool with_length_prefix)
 		return slice(&buff_[sizeof(int32_t)], cursor_ - sizeof(int32_t));
 	}
 
+	update_length(0);
+
+	return slice(&buff_[0], cursor_);
+}
+
+const slice PacketEncoder::get_as_buffer_sequence_head(size_t rest_of_buffer)
+{
+	update_length(rest_of_buffer);
+
+	return slice(&buff_[0], cursor_);
+}
+
+void PacketEncoder::update_length(size_t extra_length)
+{
 	// Calculate length prefix from cursor and write it.
 	auto current_cursor = cursor_;
 	seek(0);
-	// Write size at head (minus this length prefix itself)
-	int32_t len = current_cursor - sizeof(int32_t);
+	// Write size at head (minus this length prefix itself, but adding any additional length needed)
+	int32_t len = current_cursor - sizeof(int32_t) + extra_length;
 	io(len);
 	// Reset cursor
 	seek(current_cursor);
-
-	return slice(&buff_[0], cursor_);
 }
 
 

@@ -2,6 +2,7 @@
 #include "gtest/gtest.h"
 
 #include "protocol.h"
+#include "message_set.h"
 
 #include "slice.h"
 #include "buffer.h"
@@ -84,8 +85,8 @@ TEST(Protocol, ResponseHeaderCodec)
 }
 
 // Message test cases
-std::vector<std::tuple<proto::Message, slice>> g_messageTestCases = {
-	{proto::Message{COMP_None, "", "test message"} // construct message with value only
+std::vector<std::tuple<MessageSet::Message, slice>> g_messageTestCases = {
+	{MessageSet::Message{"", "test message", 0, COMP_None} // construct message with value only
     ,slice("\xa6\xe0\xcd\x8d" // crc32
            "\x00\x00" // Magic + attributes
            "\xFF\xFF\xFF\xFF" // Null byte key (-1)
@@ -94,7 +95,7 @@ std::vector<std::tuple<proto::Message, slice>> g_messageTestCases = {
           ,26
           )
 	},
-	{proto::Message{COMP_None, "test key", "test message"} // construct message with value only
+	{MessageSet::Message{"test key", "test message", 0, COMP_None} // construct message with value only
     ,slice("\xb5\x55\x94\x26" // crc32
            "\x00\x00" // Magic + attributes
            "\x00\x00\x00\x08" // 8 byte key
@@ -104,7 +105,7 @@ std::vector<std::tuple<proto::Message, slice>> g_messageTestCases = {
           ,34
           )
 	},
-	{proto::Message{COMP_None, "", ""} // empty
+	{MessageSet::Message{"", "", 0, COMP_None} // empty
     ,slice("\xa7\xec\x68\x03" // crc32
            "\x00\x00" // Magic + attributes
            "\xFF\xFF\xFF\xFF" // Null byte key -1
@@ -134,39 +135,40 @@ TEST(Protocol, MessageCodec)
 
 		PacketDecoder pd(buffer_from_string(encoded.str()));
 
-		proto::Message m2;
+		MessageSet::Message m2;
 		pd.io(m2);
 		ASSERT_TRUE(pd.ok()) << pd.err_str();
 
 		EXPECT_EQ(m.key, m2.key);
 		EXPECT_EQ(m.value, m2.value);
-		EXPECT_EQ(m.compression, m2.compression);
+		EXPECT_EQ(m.compression_, m2.compression_);
 	}
 }
 
-void add_messages(proto::MessageSet& ms)
+void add_messages(MessageSet& ms)
 {	
 	for (auto& test : g_messageTestCases) {
-		ms.messages.push_back(std::make_pair(0, std::get<0>(test)));
-		if (ms.messages.size() >= 3) {
-			// Ignore any more cases we might add in future
-			break;
-		}
+		ms.push(std::move(std::get<0>(test)));
 	}
 }
 
-void assert_same_messages(proto::MessageSet& ms1, proto::MessageSet& ms2)
+void assert_same_messages(MessageSet& ms1, MessageSet& ms2)
 {
+	auto messages1 = ms1.get_messages();
+	auto messages2 = ms2.get_messages();
 
-	ASSERT_EQ(ms1.messages.size(), ms2.messages.size());
+	ASSERT_EQ(messages1.size(), messages2.size());
 
 	int idx = 0;
-	for (auto& pair : ms2.messages) {
-		auto expected_pair = ms1.messages[idx];
-		EXPECT_EQ(expected_pair.first, 				pair.first);
-		EXPECT_EQ(expected_pair.second.compression, pair.second.compression);
-		EXPECT_EQ(expected_pair.second.key, 		pair.second.key);
-		EXPECT_EQ(expected_pair.second.value, 		pair.second.value);
+	for (auto& m : messages2) {
+		auto expected_m = messages1[idx];
+		EXPECT_EQ(expected_m.key, 		m.key)
+			<< "Expected: <" << expected_m.key.hex() << "> ("<< expected_m.key.size() << ")\n"
+			<< "Got:      <" << m.key.hex() << "> ("<< m.key.size() << ")";
+		EXPECT_EQ(expected_m.value, 	m.value)
+			<< "Expected: <" << expected_m.value.hex() << "> ("<< expected_m.value.size() << ")\n"
+			<< "Got:      <" << m.value.hex() << "> ("<< m.value.size() << ")";
+		EXPECT_EQ(expected_m.offset, 	m.offset);
 		++idx;
 	}
 }
@@ -200,7 +202,7 @@ TEST(Protocol, MessageSetCodec)
 	// 000000000000000000000022b555942600000000000874657374206b65790000000c74657374
 	// 206d65737361676500000000000000000000000ea7ec68030000ffffffffffffffff
 
-	proto::MessageSet ms{COMP_None, {}};
+	MessageSet ms;
 	add_messages(ms);
 
 	PacketEncoder pe(1024);
@@ -218,7 +220,7 @@ TEST(Protocol, MessageSetCodec)
 	// Read it back
 	PacketDecoder pd(buffer_from_string(encoded.str()));
 
-	proto::MessageSet ms2;
+	MessageSet ms2;
 	pd.io(ms2);
 	ASSERT_TRUE(pd.ok()) << pd.err_str();
 
@@ -227,7 +229,8 @@ TEST(Protocol, MessageSetCodec)
 
 TEST(Protocol, MessageSetCodecGZIP)
 {
-	proto::MessageSet ms{COMP_GZIP, {}};
+	MessageSet ms;
+	ms.set_compression(COMP_GZIP);
 	add_messages(ms);
 
 	// Gzipped message set from previous test
@@ -258,7 +261,7 @@ TEST(Protocol, MessageSetCodecGZIP)
 		<< "Got:      <" << encoded.hex() << "> ("<< encoded.size() << ")";
 
 	// Read it back
-	proto::MessageSet ms2;
+	MessageSet ms2;
 
 	PacketDecoder pd(buffer_from_string(encoded.str()));
 
@@ -271,7 +274,8 @@ TEST(Protocol, MessageSetCodecGZIP)
 
 TEST(Protocol, MessageSetCodecSnappy)
 {
-	proto::MessageSet ms{COMP_Snappy, {}};
+	MessageSet ms;
+	ms.set_compression(COMP_Snappy);
 	add_messages(ms);
 
 	// Gzipped message set from previous test
@@ -301,7 +305,7 @@ TEST(Protocol, MessageSetCodecSnappy)
 		<< "Got:      <" << encoded.hex() << "> ("<< encoded.size() << ")";
 
 	// Read it back
-	proto::MessageSet ms2;
+	MessageSet ms2;
 
 	PacketDecoder pd(buffer_from_string(encoded.str()));
 
@@ -406,21 +410,21 @@ TEST(Protocol, MetadataResponseCodec)
 {
 	std::vector<std::tuple<proto::MetadataResponse, slice>> test_cases = {
 		{proto::MetadataResponse{{{1, "kafka01", 9092},{2, "kafka02", 9092}} // brokers
-								,{{KafkaErrCode::NoError
+								,{{kafka_error::NoError
 								  ,"foo" // Topic name
-								  ,{{KafkaErrCode::NoError
+								  ,{{kafka_error::NoError
 								  	,0 // partitionid
 								  	,1 // leader
 								  	,{1,2} // replicas
 								  	,{1,2} // isr
 								  	}
-								   ,{KafkaErrCode::NoError
+								   ,{kafka_error::NoError
 								  	,1 // partitionid
 								  	,2 // leader
 								  	,{2,1} // replicas
 								  	,{2,1} // isr
 								  	}
-								   ,{KafkaErrCode::LeaderNotAvailable
+								   ,{kafka_error::LeaderNotAvailable
 								  	,2 // partitionid
 								  	,3 // leader
 								  	,{3,1} // replicas
@@ -428,15 +432,15 @@ TEST(Protocol, MetadataResponseCodec)
 								  	}
 								   } // Partitions
 								  }
-								 ,{KafkaErrCode::NoError
+								 ,{kafka_error::NoError
 								  ,"bar" // Topic name
-								  ,{{KafkaErrCode::NoError
+								  ,{{kafka_error::NoError
 								  	,0 // partitionid
 								  	,1 // leader
 								  	,{1,2} // replicas
 								  	,{1,2} // isr
 								  	}
-								   ,{KafkaErrCode::NoError
+								   ,{kafka_error::NoError
 								  	,1 // partitionid
 								  	,2 // leader
 								  	,{2,1} // replicas
@@ -570,23 +574,20 @@ TEST(Protocol, MetadataResponseCodec)
 
 TEST(Protocol, ProduceRequestCodec)
 {
+	MessageSet ms1;
+	ms1.push("test message", "");
+	ms1.push("test message", "");
+
+
 	std::vector<std::tuple<proto::ProduceRequest, slice>> test_cases = {
 		{proto::ProduceRequest{1 // required acks
 							  ,1000 // timeout
 							  ,{proto::ProduceTopic{"foo"
 					                               ,{proto::ProducePartition{0
-										                                    ,proto::MessageSet{COMP_None
-										                                   					  ,{{0, proto::Message{COMP_None, "", "test message"}}
-																	      					   ,{0, proto::Message{COMP_None, "", "test message"}}
-																	      					   }
-										                                 					  }
+										                                    ,ms1
 					                                					    }
 					                                ,proto::ProducePartition{1
-										                                    ,proto::MessageSet{COMP_None
-										                                    				  ,{{0, proto::Message{COMP_None, "", "test message"}}
-																	      					   ,{0, proto::Message{COMP_None, "", "test message"}}
-																	      					   }
-										                                  	     			  }
+										                                    ,ms1
 					                                 					    }
 							                        }
 							                       }
@@ -690,14 +691,14 @@ TEST(Protocol, ProduceResponseCodec)
 {
 	std::vector<std::tuple<proto::ProduceResponse, slice>> test_cases = {
 		{proto::ProduceResponse{{proto::ProduceResponseTopic{"foo"
-								 						    ,{proto::ProduceResponsePartition{0, KafkaErrCode::NoError, 123456789}
-							 							   	 ,proto::ProduceResponsePartition{1, KafkaErrCode::NoError, 145236589}
-														   	 ,proto::ProduceResponsePartition{2, KafkaErrCode::NoError, 135426589}
+								 						    ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
+							 							   	 ,proto::ProduceResponsePartition{1, kafka_error::NoError, 145236589}
+														   	 ,proto::ProduceResponsePartition{2, kafka_error::NoError, 135426589}
 														     }
 														    }
 							    ,proto::ProduceResponseTopic{"bar"
-														    ,{proto::ProduceResponsePartition{0, KafkaErrCode::NoError, 123456789}
-														   	 ,proto::ProduceResponsePartition{1, KafkaErrCode::NotLeaderForPartition, 0}
+														    ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
+														   	 ,proto::ProduceResponsePartition{1, kafka_error::NotLeaderForPartition, 0}
 														     }
 														    }
 							   }

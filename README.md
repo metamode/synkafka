@@ -29,6 +29,13 @@ on single connection at same time.
  * Only some of the API is implemented currently - only enough to discover where partitions are and produce to them.
  * API is low-level and requires external work (queuing, multithreading) to get good performance.
 
+== Dependencies
+
+This library aims to build statically with vendored dependencies mostly. 
+
+That said right now it links dynamically with zlib (tested with 1.2.8), and requires boost headers in system path (tested with boost 1.57) just because boost is so
+massive to vendor in and we only use a few small headers (asio is vendored separately..)
+
 == Usage
 
 TODO

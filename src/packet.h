@@ -1,8 +1,10 @@
 #pragma once
 
 #include <deque>
+#include <list>
 #include <string>
 #include <sstream>
+#include <vector>
 
 #include "buffer.h"
 #include "slice.h"
@@ -23,7 +25,10 @@ public:
 	virtual void io(int16_t& value) = 0;
 	virtual void io(int32_t& value) = 0;
 	virtual void io(int64_t& value) = 0;
+	virtual void io(std::error_code& value) = 0;
+	virtual void io(slice& value) = 0;
 	virtual void io(std::string& value) = 0;
+	virtual void io_bytes(slice& value, CompressionType ctype) = 0;
 	virtual void io_bytes(std::string& value, CompressionType ctype) = 0;
 
 	// Special helpers to enable writing fields that rely on later data to be correct
@@ -83,7 +88,10 @@ public:
 	void io(int16_t& value) override;
 	void io(int32_t& value) override;
 	void io(int64_t& value) override;
+	void io(std::error_code& value) override;
+	void io(slice& value) override;
 	void io(std::string& value) override;
+	void io_bytes(slice& value, CompressionType ctype) override;
 	void io_bytes(std::string& value, CompressionType ctype) override;
 
 	size_t start_crc() override;
@@ -102,10 +110,12 @@ public:
 	}
 
 	const slice get_as_slice(bool with_length_prefix);
+	const slice get_as_buffer_sequence_head(size_t rest_of_buffer);
 
 private:
-	buffer_t 	buff_;
+	void update_length(size_t extra_length);
 
+	buffer_t 	buff_;
 };
 
 class PacketDecoder : public PacketCodec
@@ -117,12 +127,13 @@ public:
 	void io(int16_t& value) override;
 	void io(int32_t& value) override;
 	void io(int64_t& value) override;
+	void io(std::error_code& value) override;
 
 	// Slice returned points to shared buffer so it is only valid as long
-	// as the PacketDecoder is around, if stronger guarantee is needed, copy it
-	// or we could implement method to allow the caller to make also take a copy
-	// of underlying shared buffer so it keeps ref alive even if Encoder goes away.
+	// as the PacketDecoder is around.
+	void io(slice& value) override;
 	void io(std::string& value) override;
+	void io_bytes(slice& value, CompressionType ctype) override;
 	void io_bytes(std::string& value, CompressionType ctype) override;
 
 	size_t start_crc() override;
@@ -142,6 +153,10 @@ public:
 
 private:
 	shared_buffer_t buff_;
+
+	// List where we can store decompress buffers to keep them alive until Decoder dies
+	// such that decompressed slices remain valid as long as ones representing bytes direct from input buffer.
+	std::list<shared_buffer_t> decompress_buffs_;
 
 	bool can_read(size_t bytes);
 };

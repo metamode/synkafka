@@ -52,7 +52,25 @@ void PacketDecoder::io(int64_t& value)
 	cursor_ += sizeof(int64_t);
 }
 
+void PacketDecoder::io(std::error_code& value)
+{
+	int16_t err;
+	io(err);
+	if (ok()) {
+		value.assign(err, kafka_category());
+	}
+}
+
 void PacketDecoder::io(std::string& value)
+{
+	slice s;
+	io(s);
+	if (ok()) {
+		value.assign(reinterpret_cast<const char *>(s.data()), s.size());
+	}
+}
+
+void PacketDecoder::io(slice& value)
 {
 	// Reat the length prefix
 	int16_t len = 0;
@@ -66,11 +84,20 @@ void PacketDecoder::io(std::string& value)
 
 	if (!can_read(len)) return;
 
-	value = std::move(std::string(reinterpret_cast<char *>(&buff_->at(cursor_)), len));
+	value.reset(&buff_->at(cursor_), len);
 	cursor_ += len;
 }
 
 void PacketDecoder::io_bytes(std::string& value, CompressionType ctype)
+{
+	slice s;
+	io_bytes(s, ctype);
+	if (ok()) {
+		value.assign(reinterpret_cast<const char *>(s.data()), s.size());
+	}
+}
+
+void PacketDecoder::io_bytes(slice& value, CompressionType ctype)
 {
 	// Reat the length prefix
 	int32_t len = 0;
@@ -87,17 +114,19 @@ void PacketDecoder::io_bytes(std::string& value, CompressionType ctype)
 	switch (ctype)
 	{
 	case COMP_None:
-		value = std::move(std::string(reinterpret_cast<char *>(&buff_->at(cursor_)), len));
+		value.reset(&buff_->at(cursor_), len);
 		cursor_ += len;
 		break;
 
 	case COMP_GZIP:
 	{
-		const size_t CHUNK = 128 * 1024;
-
+		const int CHUNK_SIZE = 128 * 1024;
 	    unsigned have;
 	    z_stream strm;
-	    unsigned char buff[CHUNK];
+
+	    // Create a buffer for output that will live as long as the Decoder so
+	    // we can return slice into
+	    shared_buffer_t buff(new buffer_t(CHUNK_SIZE));
 
 		// Initialize gzip compression
 		memset(&strm, 0, sizeof(strm));
@@ -113,9 +142,11 @@ void PacketDecoder::io_bytes(std::string& value, CompressionType ctype)
 	    strm.next_in = reinterpret_cast<Bytef*>(&buff_->at(cursor_));
 
 	    /* run inflate() on input until output buffer not full */
+	    size_t bytes_written = 0;
+
 	    do {
-	        strm.avail_out = CHUNK;
-	        strm.next_out = buff;
+			strm.avail_out = CHUNK_SIZE;
+	        strm.next_out = reinterpret_cast<Bytef*>(&buff->at(bytes_written));
 	        r = inflate(&strm, Z_NO_FLUSH);
 	        assert(r != Z_STREAM_ERROR);  /* state not clobbered */
 	        switch (r) {
@@ -127,16 +158,22 @@ void PacketDecoder::io_bytes(std::string& value, CompressionType ctype)
 					<< "GZIP inflate failed: " << strm.msg;
 	            return;
 	        }
-	        have = CHUNK - strm.avail_out;
+	        have = CHUNK_SIZE - strm.avail_out;
+	        bytes_written += have;
 
-	        value.reserve(have);
-
-	        std::copy(&buff[0], &buff[have], std::back_inserter(value));
+	        if (strm.avail_out == 0) {
+	        	// Buffer is full, more to come, expand it
+	        	buff->resize(buff->size() + CHUNK_SIZE);
+	        }
 
 	    } while (strm.avail_out == 0);
 
-	    /* clean up and return */
 	    (void)inflateEnd(&strm);
+
+	    // Return slice into buffer and save it in PacketDecoder object so slice remains valid
+	    // as long as PacketDecoder is around
+	    value.reset(&buff->at(0), bytes_written);
+	    decompress_buffs_.push_back(std::move(buff));
 
 		// Move cursor to end of compressed bytes
 		cursor_ += len;
@@ -145,10 +182,33 @@ void PacketDecoder::io_bytes(std::string& value, CompressionType ctype)
 
 	case COMP_Snappy:
 	{
-		if (!snappy::Uncompress(reinterpret_cast<char *>(&buff_->at(cursor_)), len, &value)) {
+		size_t uncompressed_len;
+		if (!snappy::GetUncompressedLength(reinterpret_cast<char *>(&buff_->at(cursor_))
+										  ,len
+										  ,&uncompressed_len
+										  )) {
 			set_err(ERR_COMPRESS_FAIL)
-				<< "Failed Snappy Uncomopress";
+				<< "Failed Snappy GetUncompressedLength";
+			return;			
 		}
+
+	    // Create a buffer for output that will live as long as the Decoder so
+	    // we can return slice into
+	    shared_buffer_t buff(new buffer_t(uncompressed_len));
+
+		if (!snappy::RawUncompress(reinterpret_cast<char *>(&buff_->at(cursor_))
+								  ,len
+								  ,reinterpret_cast<char *>(&buff->at(0))
+								  )) {
+			set_err(ERR_COMPRESS_FAIL)
+				<< "Failed Snappy Uncompress";
+			return;
+		}
+
+	    // Return slice into buffer and save it in PacketDecoder object so slice remains valid
+	    // as long as PacketDecoder is around
+	    value.reset(&buff->at(0), buff->size());
+	    decompress_buffs_.push_back(std::move(buff));
 
 		// Move cursor to end of compressed bytes
 		cursor_ += len;

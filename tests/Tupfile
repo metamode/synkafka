@@ -1,11 +1,13 @@
 include_rules
 
-CFLAGS += -I../vendor/gtest/include -I../vendor/gtest -I../src -lz
+CFLAGS += -I../vendor/gtest/include -I../vendor/gtest -I../src
 
 : foreach ../vendor/gtest/src/*.cc |> !cc |> {gtest_o}
 : {gtest_o} |> ar rcs %o %f |> libgtest.a
 
-: foreach protocol/*.cpp |> !cc |> {test_o}
-: {test_o} libgtest.a ../src/libsynkafka.a |> g++ $(CFLAGS) %f -o %o |> synkafka_test
+: foreach protocol/*.cpp *.cpp |> !cc |> {test_o}
 
-: synkafka_test |> ./synkafka_test |>
+# Build from raw O files not static lib since static lib can't contain debug symbols
+: {test_o} libgtest.a ../src/*.o |> g++ $(CFLAGS)  -Bstatic -lz -lboost_system %f -o %o |> synkafka_test
+
+: synkafka_test |> LOG_LEVEL=DEBUG ./synkafka_test |> 
