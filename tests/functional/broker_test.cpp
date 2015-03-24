@@ -33,7 +33,7 @@ void run_asio(boost::asio::io_service& io_service)
 	}
 }
 
-TEST(Broker, BasicConnection)
+TEST(Broker, MetadataRequest)
 {
     boost::asio::io_service io_service;
     std::auto_ptr<boost::asio::io_service::work> work(
@@ -102,6 +102,68 @@ TEST(Broker, BasicConnection)
 
 	    // Partitions should have 2 in sync replicas
 	    EXPECT_EQ(2, resp.topics[0].partitions[0].isr.size());
+    }
+
+    work.reset(); // Exit asio thread
+    io_service.stop();
+    ios_thread.join();
+}
+
+
+TEST(Broker, SimpleProduce)
+{
+    boost::asio::io_service io_service;
+    std::auto_ptr<boost::asio::io_service::work> work(
+    	new boost::asio::io_service::work(io_service)); // Keep io service running till we are done
+
+    std::thread ios_thread(run_asio, std::ref(io_service));
+
+    boost::shared_ptr<Broker> b(new Broker(io_service, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
+
+    b->start_connect();
+
+    MessageSet ms;
+
+    ms.push("Hello World. This is a Message produced by Synkafka. 1.", "");
+    ms.push("Hello World. This is a Message produced by Synkafka. 2.", "");
+    ms.push("Hello World. This is a Message produced by Synkafka. 3.", "");
+    ms.push("Hello World. This is a Message produced by Synkafka. 4.", "");
+
+    proto::ProduceRequest rq{1
+    						,1000
+    						,{proto::ProduceTopic{"test"
+    											 ,{proto::ProducePartition{0
+    											 						  ,ms
+    											 						  }
+    											  }
+    											 }
+    						 }
+    						};
+
+    proto::ProduceResponse resp;
+    auto enc = std::make_shared<PacketEncoder>(1024);
+    enc->io(rq);
+
+    EXPECT_TRUE(enc->ok()) << "Error: " << enc->err_str();
+
+    auto decoder_future = b->call(ApiKey::MetadataRequest, std::move(enc));
+
+    auto status = decoder_future.wait_for(std::chrono::seconds(1));
+
+    EXPECT_NE(std::future_status::timeout, status);
+
+    if (std::future_status::timeout != status) {
+	    auto decoder = decoder_future.get();
+	    decoder.io(resp);
+
+	    EXPECT_TRUE(decoder.ok());
+
+	    EXPECT_EQ(1, resp.topics.size());
+	    EXPECT_EQ("test", resp.topics[0].name);
+	    EXPECT_EQ(1, resp.topics[0].partitions.size());
+	    EXPECT_EQ(0, resp.topics[0].partitions[0].partition_id);
+	    EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
+	    EXPECT_GT(0, resp.topics[0].partitions[0].offset);
     }
 
     work.reset(); // Exit asio thread

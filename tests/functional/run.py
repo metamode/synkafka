@@ -3,6 +3,7 @@
 # SETUP INSTRUCTIONS:
 
 # 1. run setup_cluster.sh once ebfore each functional testing session. See dependencies there for first run
+# 2. run this from the root dir of the project - it will rebuild each time before executing to keep single command when debugging failures
 
 from yaml import load
 import os
