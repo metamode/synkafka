@@ -130,7 +130,7 @@ void PacketDecoder::io_bytes(slice& value, CompressionType ctype)
 
 		// Initialize gzip compression
 		memset(&strm, 0, sizeof(strm));
-		auto r = inflateInit2(&strm, 15+32); // 15+32 is magic that makes us look for proepr GZIP header on just zlib one
+		auto r = inflateInit2(&strm, 15+32); // 15+32 is magic that makes us look for proper GZIP header not just zlib one
 
 		if (r != Z_OK) {
 			set_err(ERR_COMPRESS_FAIL)
@@ -141,7 +141,6 @@ void PacketDecoder::io_bytes(slice& value, CompressionType ctype)
 	    strm.avail_in = len;
 	    strm.next_in = reinterpret_cast<Bytef*>(&buff_->at(cursor_));
 
-	    /* run inflate() on input until output buffer not full */
 	    size_t bytes_written = 0;
 
 	    do {
@@ -162,7 +161,7 @@ void PacketDecoder::io_bytes(slice& value, CompressionType ctype)
 	        bytes_written += have;
 
 	        if (strm.avail_out == 0) {
-	        	// Buffer is full, more to come, expand it
+	        	// Buffer is full, (probably) more to come, expand it
 	        	buff->resize(buff->size() + CHUNK_SIZE);
 	        }
 

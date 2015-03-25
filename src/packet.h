@@ -151,6 +151,18 @@ public:
 		kafka_proto_io(*this, type);
 	}
 
+	// When decoding nested messages the uncompressed nested messageset is in a buffer in decompress_buffs_
+	// but we need to decode from that, so we use another PacketDecoder to decode from that decompressed buffer.
+	// We could just make a copy of the buffer for now although it's suboptimal by using slice::str() however
+	// then the resulting message keys/values will be slices pointing into the internal data structure and we
+	// have to hackily find a way to preserve that copied buffer as long as the original PacketDecoder is around.
+	// Instead we rely for now on the fact that we always decode the nested message set immediately after decoding
+	// the compressed message which means the uncompressed buffer can be pulled out and used in the internal decoder
+	// without a copy. This is more efficient but more importantly means the slices will continue to point into a
+	// buffer that will stay around as long as this PacketDecoder does.
+	// REQUIRES: must be at least one decompressed buff in list
+	shared_buffer_t get_last_decompress_buffer() { return *(decompress_buffs_.rbegin()); }
+
 private:
 	shared_buffer_t buff_;
 

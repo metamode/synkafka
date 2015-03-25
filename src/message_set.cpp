@@ -79,7 +79,12 @@ size_t MessageSet::get_worst_case_compressed_size(size_t size) const
 			// Errr... not sure what else we can do in here
 			throw make_error_code(synkafka_error::compression_lib_error);
 		}
-		return deflateBound(&strm, size);
+		auto worst_case = deflateBound(&strm, size);
+
+		// Free memory
+		deflateEnd(&strm);
+
+		return worst_case;
 	}
 	case COMP_Snappy:
 		return snappy::MaxCompressedLength(size);
@@ -195,8 +200,12 @@ void kafka_proto_io_impl(PacketCodec& p, MessageSet& ms, int32_t encoded_length)
 				} else {
 					// Message decoder already should have detected compression and decompressed the message's value
 					// we just need to decode that as a nested message set and append messages to this message set...
-					// Note that this means a whole extra copies currently. Will fix it if performance becomes important.
-					PacketDecoder pd(buffer_from_string(m.value.str()));
+					// We rely on the decompressed buffer being the last one decompressed and so it is on the end of the
+					// Decoder's list. We get it and use directly which both saves copy overhead but more importantly
+					// means the messages we decode will have their key/value slices pointing into a valid buffer once
+					// this PacketDecoder is destructed below.
+					auto decoder = reinterpret_cast<PacketDecoder *>(&p);
+					PacketDecoder pd(decoder->get_last_decompress_buffer());
 
 					// Decode messages directly into the message set here - new ones will be appended.
 					pd.io(ms);
