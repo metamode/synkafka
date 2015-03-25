@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <future>
+#include <map>
 #include <memory>
 #include <thread>
 
@@ -109,6 +110,55 @@ TEST(Broker, MetadataRequest)
     ios_thread.join();
 }
 
+bool test_connect_and_send_message_set(boost::asio::io_service& io_service
+									  ,proto::Broker& broker
+									  ,MessageSet& ms
+									  ,int32_t partition_id
+									  ,const char* test_name
+									  ,proto::ProduceResponse* resp
+									  )
+{
+	boost::shared_ptr<Broker> b(new Broker(io_service, broker.host, broker.port, "test"));
+
+	b->start_connect();
+
+    proto::ProduceRequest rq{1
+    						,500
+    						,{proto::ProduceTopic{"test"
+    											 ,{proto::ProducePartition{partition_id
+    											 						  ,ms
+    											 						  }
+    											  }
+    											 }
+    						 }
+    						};
+
+    auto enc = std::make_shared<PacketEncoder>(1024);
+    enc->io(rq);
+
+    EXPECT_TRUE(enc->ok()) << test_name << "Encoder error: " << enc->err_str();
+
+    auto decoder_future = b->call(ApiKey::ProduceRequest, std::move(enc));
+
+    auto status = decoder_future.wait_for(std::chrono::seconds(1));
+
+    EXPECT_NE(std::future_status::timeout, status);
+
+    if (std::future_status::timeout != status) {
+	    auto decoder = decoder_future.get();
+	    decoder.io(*resp);
+
+	    EXPECT_TRUE(decoder.ok());		    
+	    EXPECT_EQ(1, 					resp->topics.size());
+		EXPECT_EQ("test", 				resp->topics[0].name);
+		EXPECT_EQ(1, 					resp->topics[0].partitions.size());
+		EXPECT_EQ(0, 					resp->topics[0].partitions[0].partition_id);
+
+	    return decoder.ok();
+    }
+    return false;
+}
+
 
 TEST(Broker, SimpleProduce)
 {
@@ -118,33 +168,17 @@ TEST(Broker, SimpleProduce)
 
     std::thread ios_thread(run_asio, std::ref(io_service));
 
+
+    // First we need to get meta data to find out which broker to produce to
     boost::shared_ptr<Broker> b(new Broker(io_service, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
+    //boost::shared_ptr<Broker> b(new Broker(io_service, "localhost", 9000, "test"));
 
     b->start_connect();
 
-    MessageSet ms;
-
-    ms.push("Hello World. This is a Message produced by Synkafka. 1.", "");
-    ms.push("Hello World. This is a Message produced by Synkafka. 2.", "");
-    ms.push("Hello World. This is a Message produced by Synkafka. 3.", "");
-    ms.push("Hello World. This is a Message produced by Synkafka. 4.", "");
-
-    proto::ProduceRequest rq{1
-    						,1000
-    						,{proto::ProduceTopic{"test"
-    											 ,{proto::ProducePartition{0
-    											 						  ,ms
-    											 						  }
-    											  }
-    											 }
-    						 }
-    						};
-
-    proto::ProduceResponse resp;
-    auto enc = std::make_shared<PacketEncoder>(1024);
+    proto::TopicMetadataRequest rq;
+    proto::MetadataResponse resp;
+    auto enc = std::make_shared<PacketEncoder>(128);
     enc->io(rq);
-
-    EXPECT_TRUE(enc->ok()) << "Error: " << enc->err_str();
 
     auto decoder_future = b->call(ApiKey::MetadataRequest, std::move(enc));
 
@@ -153,17 +187,88 @@ TEST(Broker, SimpleProduce)
     EXPECT_NE(std::future_status::timeout, status);
 
     if (std::future_status::timeout != status) {
-	    auto decoder = decoder_future.get();
+
+    	// Find broker for partition 0 and produce to it
+    	// (we rely on there being correct partitions as tested in meta test etc)
+    	auto decoder = decoder_future.get();
 	    decoder.io(resp);
 
 	    EXPECT_TRUE(decoder.ok());
 
-	    EXPECT_EQ(1, resp.topics.size());
-	    EXPECT_EQ("test", resp.topics[0].name);
-	    EXPECT_EQ(1, resp.topics[0].partitions.size());
-	    EXPECT_EQ(0, resp.topics[0].partitions[0].partition_id);
-	    EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
-	    EXPECT_GT(0, resp.topics[0].partitions[0].offset);
+    	proto::Broker* test_0_leader = nullptr;
+    	proto::Broker* test_0_not_leader = nullptr;
+
+    	EXPECT_LT(0, resp.brokers.size());
+    	EXPECT_LT(0, resp.topics.size());
+
+    	for (auto& topic : resp.topics) {
+    		if (topic.name == "test") {
+    			for (auto& partition : topic.partitions) {
+    				if (partition.partition_id == 0) {
+    					// Get leader
+    					for (auto& broker : resp.brokers) {
+    						if (broker.node_id == partition.leader) {
+    							test_0_leader = &broker;
+    						} else if (test_0_not_leader == nullptr) {
+    							test_0_not_leader = &broker;
+    						}
+    					}
+    					break;
+    				}
+    			}
+    		break;
+    		}
+    	}
+
+    	EXPECT_NE(nullptr, test_0_leader);
+    	EXPECT_NE(nullptr, test_0_not_leader);
+
+		MessageSet ms;
+
+		ms.push("Hello World. This is a Message produced by Synkafka. 1.", "");
+		ms.push("Hello World. This is a Message produced by Synkafka. 2.", "");
+		ms.push("Hello World. This is a Message produced by Synkafka. 3.", "");
+		ms.push("Hello World. This is a Message produced by Synkafka. 4.", "");
+
+    	if (test_0_leader) {    
+    		proto::ProduceResponse resp;
+    		EXPECT_TRUE(test_connect_and_send_message_set(io_service, *test_0_leader, ms, 0, "uncompressed", &resp));
+		    EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
+    	}
+
+    	// Test publish to non-leader gets expected error
+    	if (test_0_not_leader) {    
+    		proto::ProduceResponse resp;
+    		EXPECT_TRUE(test_connect_and_send_message_set(io_service, *test_0_not_leader, ms, 0, "uncompressed, wrong broker", &resp));
+		    EXPECT_EQ(kafka_error::NotLeaderForPartition, resp.topics[0].partitions[0].err_code);
+    	}
+
+    	// Test publish with GZIP
+		ms.push("Hello World. This is extra message for GZIP batch", "");
+    	ms.set_compression(COMP_GZIP);
+    	if (test_0_leader) {    
+    		proto::ProduceResponse resp;
+    		EXPECT_TRUE(test_connect_and_send_message_set(io_service, *test_0_leader, ms, 0, "GZIP", &resp));
+		    EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
+    	}  
+
+    	//And Snappy
+		ms.push("Hello World. This is extra message for Snappy batch", "");
+    	ms.set_compression(COMP_Snappy);
+    	if (test_0_leader) {    
+    		proto::ProduceResponse resp;
+    		EXPECT_TRUE(test_connect_and_send_message_set(io_service, *test_0_leader, ms, 0, "Snappy", &resp));
+		    EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
+    	}
+
+    	// All of the above can be verified it's really doing what is expected manually via:
+    	//  1. check the test run output when DEBUG logs are on and see that first two sends result in something like
+    	//       handle_write sent OK (370 bytes written)
+    	//     while GZIP and snappy send fewer bytes:
+    	//       handle_write sent OK (227 bytes written)
+    	//       handle_write sent OK (259 bytes written)
+    	//  2. Verify using `./kafka-simple-consumer-shell.sh --broker-list=192.168.59.103:9092 --topic test --partition 0`
+    	//     that the messages are readable and sent as expected. They also decode compressed ones transparently (hence differnt messages in those) 
     }
 
     work.reset(); // Exit asio thread

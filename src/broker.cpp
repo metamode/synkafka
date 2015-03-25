@@ -96,7 +96,7 @@ void Broker::start_connect()
 
 void Broker::handle_resolve(const error_code& ec, tcp::resolver::iterator endpoint_iterator)
 {
-	log->debug("handle_resolve ec: ") << ec.message();
+	log->debug("handle_resolve ec: ") << (ec ? ec.message() : "0");
 
 	if (ec) {
 		// not much more we can do...
@@ -120,7 +120,7 @@ void Broker::handle_resolve(const error_code& ec, tcp::resolver::iterator endpoi
 
 void Broker::handle_connect(const error_code& ec, tcp::resolver::iterator endpoint_iterator)
 {
-	log->debug("handle_connect ec: ") << ec.message();
+	log->debug("handle_connect ec: ") << (ec ? ec.message() : "0");
 
     if (!ec)
     {
@@ -239,14 +239,14 @@ void Broker::handle_write(const error_code& ec, size_t bytes_written)
 	auto req = in_flight_.begin();
 	if (ec) {
 		// Fail the request
-		log->debug("handle_write failing request: ") << ec << " bytes_written: " << bytes_written;
+		log->debug("handle_write failing request: ") << (ec ? ec.message() : "0") << " bytes_written: " << bytes_written;
 		req->response_promise.set_exception(std::make_exception_ptr(boost::system::system_error(ec)));
 		in_flight_.pop_front();
 	} else {
 		req->sent = true;
 
 		if (response_handler_state_ == RespHandlerStateIdle) {
-			log->debug("handle_write sent OK, starting respone handler run: ");
+			log->debug("handle_write sent OK (") << bytes_written << " bytes written). Starting Response handler.";
 			strand_.post(boost::bind(&Broker::response_handler_actor, shared_from_this(), error_code(), 0));
 		} 
 	}
@@ -262,7 +262,7 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 
 	// Any read error is treated as fatal since we rely on ordering to work correctly
 	if (ec) {
-		log->debug("response_handler_actor read error, failing request: ") << ec << " bytes_read: " << n;
+		log->debug("response_handler_actor read error, failing request: ") << (ec ? ec.message() : "0") << " bytes_read: " << n;
 		req->response_promise.set_exception(std::make_exception_ptr(boost::system::system_error(ec)));
 		close();
 		return;
@@ -291,7 +291,7 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 		{
 			response_handler_state_ = RespHandlerStateReadResp;
 		
-			log->debug("response_handler_actor ReadHeader -> ReadResponse ec:") << ec << " bytes read: " << n;
+			log->debug("response_handler_actor ReadHeader -> ReadResponse ec:") << (ec ? ec.message() : "0") << " bytes read: " << n;
 
 			// We now have the response length prefix and the header
 
@@ -343,7 +343,7 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 		{
 			response_handler_state_ = RespHandlerStateIdle;
 		
-			log->debug("response_handler_actor ReadResp -> Idle ec:") << ec << " bytes read: " << n;
+			log->debug("response_handler_actor ReadResp -> Idle ec:") << (ec ? ec.message() : "0") << " bytes read: " << n;
 
 			// We know correlationids matched already, now check we read enough...
 			if (n < response_buffer_->size()) {
