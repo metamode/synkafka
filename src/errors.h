@@ -17,11 +17,11 @@ enum class synkafka_error
 {
 	no_error = 0,
 	bad_config,
-	network_connection_closed,
 	network_fail,
 	network_timeout,
 	message_set_full,
 	compression_lib_error,
+	client_stopping,
 };
 
 class synkafka_error_category_impl
@@ -42,6 +42,12 @@ public:
 			return "TCP connection failed, or host not available";
 		case synkafka_error::network_timeout:
 			return "TCP connection timed out";
+		case synkafka_error::message_set_full:
+			return "MessageSet is full - adding that item would make it's encoded size potentially bigger than configured maximum";
+		case synkafka_error::compression_lib_error:
+			return "Error (de)compressing buffer from compression library";
+		case synkafka_error::client_stopping:
+			return "Client has shut down";
 		default:
 			return "Invalid Synkafka Error";
 		}

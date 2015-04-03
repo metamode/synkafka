@@ -8,6 +8,6 @@ CFLAGS += -I../vendor/gtest/include -I../vendor/gtest -I../src
 : foreach protocol/*.cpp *.cpp |> !cc |> {test_o}
 
 # Build from raw O files not static lib since static lib can't contain debug symbols
-: {test_o} libgtest.a ../src/*.o |> g++ $(CFLAGS)  -Bstatic -lz -lboost_system %f -o %o |> synkafka_test
+: {test_o} libgtest.a ../src/*.o |> $(CXX) $(CFLAGS)  -Bstatic -lz -lboost_system %f -o %o |> synkafka_test
 
 : synkafka_test |> LOG_LEVEL=DEBUG ./synkafka_test |> 

@@ -26,7 +26,9 @@ Broker::Broker(boost::asio::io_service& io_service, const std::string& host, int
 	,socket_(io_service)
 	,next_correlation_id_(1)
 	,in_flight_()
-	,connection_state_(StateConnecting)
+	,connection_state_(StateInit)
+	,connection_mu_()
+	,connection_cv_()
 	,response_handler_state_(RespHandlerStateIdle)
 	,header_buffer_(new buffer_t(sizeof(int32_t) + sizeof(int32_t))) // Response header is just a single length prefix plus the correlation id currently
 	,response_buffer_()
@@ -41,7 +43,9 @@ Broker::~Broker()
 
 void Broker::close()
 {	
-	if (connection_state_.load() == StateClosed) {
+	std::lock_guard<std::mutex> lk(connection_mu_);
+
+	if (connection_state_ == StateClosed) {
 		return;
 	}
 
@@ -51,15 +55,20 @@ void Broker::close()
 	socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored);
 	socket_.close(ignored);
 	connection_state_ = StateClosed;
+
+	// Notify anyone waiting on connection
+	connection_cv_.notify_all();
 }
 
-bool Broker::is_connected() const
+bool Broker::is_connected()
 {
-	return connection_state_.load() == StateConnected;
+	std::lock_guard<std::mutex> lk(connection_mu_);
+	return connection_state_ == StateConnected;
 }
-bool Broker::is_closed() const
+bool Broker::is_closed()
 {
-	return connection_state_.load() == StateClosed;
+	std::lock_guard<std::mutex> lk(connection_mu_);
+	return connection_state_ == StateClosed;
 }
 
 std::future<PacketDecoder> Broker::call(int16_t api_key, std::shared_ptr<PacketEncoder> request_packet)
@@ -79,19 +88,74 @@ std::future<PacketDecoder> Broker::call(int16_t api_key, std::shared_ptr<PacketE
 	return f;
 }
 
-void Broker::start_connect()
+std::error_code Broker::wait_for_connect(int32_t milliseconds)
 {
-	log->debug("Starting Connect to broker ") << identity_.host << ":"<< identity_.port;
+	std::unique_lock<std::mutex> lk(connection_mu_);
 
-	tcp::resolver::query query(identity_.host, std::to_string(identity_.port));
-	resolver_.async_resolve(query
-						   ,strand_.wrap(boost::bind(&Broker::handle_resolve
-						   							,shared_from_this()
-						   							,boost::asio::placeholders::error
-						   							,boost::asio::placeholders::iterator
-						   							)
-						   				)
-						   );
+	log->debug("Wait for connect to broker ") 
+		<< identity_.host << ":"<< identity_.port
+		<< " connection state: " << connection_state_
+		<< " timeout: " << milliseconds << "ms";
+
+	switch (connection_state_) 
+	{
+	case StateConnected:
+		return make_error_code(synkafka_error::no_error);
+
+	default: // to satisfy compiler that we cuaght all cases with non-enum constants
+	case StateClosed:
+		return make_error_code(synkafka_error::network_fail);
+
+	case StateConnecting:
+		{
+			// Already started connecting but not done, wait for completion
+			auto ok = connection_cv_.wait_for(lk
+											 ,std::chrono::milliseconds(milliseconds)
+											 ,[this]{ return connection_state_ != StateConnecting; }
+											 );
+
+			// Either we timed out while state is still StateConnecting (!ok)
+			// or state did change, but we are now closed.
+			if (!ok) {
+				log->debug("");
+				return make_error_code(synkafka_error::network_timeout);
+			}
+
+			if (connection_state_ == StateClosed) {
+				log->debug("wait for connection failed: closed");
+				return make_error_code(synkafka_error::network_fail);
+			}
+
+			// We connected OK within timeout!
+			return make_error_code(synkafka_error::no_error);
+		}
+
+	case StateInit:
+		// First connection attempt, start connecting
+		connection_state_ = StateConnecting;
+
+		// Release lock while we start async process - no other thread can do this now.
+		// We //could// cause a soft deadlock if an exception is thrown here or async connect
+		// fails but this is true in many other places and is gaurded against by the timeout
+		// that other threads have when waiting to see if we are connected.
+		lk.unlock();
+
+		log->debug("Starting connection to broker ") << identity_.host << ":"<< identity_.port;
+
+		tcp::resolver::query query(identity_.host, std::to_string(identity_.port));
+		resolver_.async_resolve(query
+							   ,strand_.wrap(boost::bind(&Broker::handle_resolve
+							   							,shared_from_this()
+							   							,boost::asio::placeholders::error
+							   							,boost::asio::placeholders::iterator
+							   							)
+							   				)
+							   );
+
+		// Now we recursively wait for our own connection
+		// NOTE: that we unlocked mutex above so we can call this safely without deadlock
+		return wait_for_connect(milliseconds);
+	}
 }
 
 void Broker::handle_resolve(const error_code& ec, tcp::resolver::iterator endpoint_iterator)
@@ -124,8 +188,16 @@ void Broker::handle_connect(const error_code& ec, tcp::resolver::iterator endpoi
 
     if (!ec)
     {
+    	std::unique_lock<std::mutex> lk(connection_mu_);
+
       	// The connection was successful.
     	connection_state_ = StateConnected;
+
+    	// Signal any waiters that we are now connected
+    	// we'll unlock first to allow at least one of them to aquire
+    	// and return immediately. mutex is onlu protecting connection_state_ anyway
+    	lk.unlock();
+    	connection_cv_.notify_all();
 
     	// See if anything was waiting to send
     	if (!in_flight_.empty()) {
@@ -156,13 +228,7 @@ void Broker::push_request(std::shared_ptr<InFlightRequest> req)
 {
 	log->debug("push_request");
 
-	// Note that connection state can be modified from outside
-	// but there is no race here since other threads can only change it to disconnected state
-	// and internal call that is changing from connecting -> connected can't be concurrent since it's 
-	// executed on same strand
-	auto conn_state = connection_state_.load();
-
-	if (conn_state == StateClosed) {
+	if (is_closed()) {
 		// If we already closed connection, don't even bother queueing it, return error code now
 		return;
 	}
@@ -175,7 +241,7 @@ void Broker::push_request(std::shared_ptr<InFlightRequest> req)
 
 	// If we are connected, do the async write
 	// if not, then write_next_request will be called on connection success
-	if (conn_state == StateConnected) {
+	if (is_connected()) {
 		write_next_request();
 	}
 }
@@ -254,7 +320,7 @@ void Broker::handle_write(const error_code& ec, size_t bytes_written)
 
 void Broker::response_handler_actor(const error_code& ec, size_t n)
 {
-	if (connection_state_.load() != StateConnected || in_flight_.empty()) {
+	if (!is_connected() || in_flight_.empty()) {
 		return;
 	}
 

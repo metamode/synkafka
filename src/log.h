@@ -6,7 +6,7 @@
 
 namespace synkafka {
 
-auto log = spdlog::stdout_logger_mt("console");
+static auto log = spdlog::stdout_logger_mt("console");
 
 static std::atomic<bool> init_done(false);
 

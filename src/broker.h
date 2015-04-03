@@ -1,9 +1,10 @@
 #pragma once
 
-#include <atomic>
+#include <condition_variable>
 #include <future>
 #include <list>
 #include <memory>
+#include <mutex>
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
@@ -35,8 +36,8 @@ public:
 	//  1. We were connected but TCP connection died and was closed, or was closed externally (possibly due to taking to long for response)
 	//  2. We were just instantiated and are still waiting for async resolve/connect to happen
 	// If you need to distinguish the to cases, use is_closed() which will only return true in the second case.
-	bool is_connected() const;
-	bool is_closed() const;
+	bool is_connected();
+	bool is_closed();
 
 	void close();
 
@@ -51,7 +52,7 @@ public:
 		std::promise<PacketDecoder> 	response_promise;
 	};
 
-	void start_connect();
+	std::error_code wait_for_connect(int32_t milliseconds);
 	void handle_resolve(const error_code& err, tcp::resolver::iterator endpoint_iterator);
 	void handle_connect(const error_code& err, tcp::resolver::iterator endpoint_iterator);
 
@@ -62,9 +63,12 @@ public:
 
 	void response_handler_actor(const error_code& ec, size_t n = 0);
 
+	const proto::Broker& get_config() const { return identity_; }
+
 private:
 
 	enum {
+		StateInit,
 		StateConnecting,
 		StateConnected,
 		StateClosed,
@@ -83,7 +87,9 @@ private:
 	tcp::socket         				socket_;
 	uint32_t							next_correlation_id_;
 	std::list<InFlightRequest>			in_flight_;
-	std::atomic<int>					connection_state_;
+	int 								connection_state_;
+	std::mutex							connection_mu_;
+	std::condition_variable				connection_cv_;
 	int 								response_handler_state_;
 	shared_buffer_t 					header_buffer_;
 	shared_buffer_t						response_buffer_;

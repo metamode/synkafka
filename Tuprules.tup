@@ -1,9 +1,11 @@
 CFLAGS += -Wall -std=c++11 -stdlib=libc++
 
+CXX = gccfilter -a -c g++
+
 ifdef DBG
 	CFLAGS += -ggdb
 else
 	CFLAGS += -O3
 endif
 
-!cc = |> g++ $(CFLAGS) -c %f -o %o |> %B.o
+!cc = |> $(CXX) $(CFLAGS) -c %f -o %o |> %B.o
