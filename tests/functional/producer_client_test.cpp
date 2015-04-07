@@ -59,11 +59,12 @@ TEST_F(ProducerClientTest, PartitionAvailability)
     // send a message. We *could* test a different good partition here but the mapping is not
     // fixed and so test would ne non-deterministic based on whether or not leader happened to be the same
     // as leader for partition 0 above.
-    // Instead we'll try get another one that is unknown, which will force a new meta data refresh whidch should
-    // fail with network error, then our connection sh
+    // Instead we'll try get another one that is unknown, which will force a new meta data refresh which should
+    // fail with network error, we should be told that network error occured NOT just that the partition is unknown
     ec = client_->check_topic_partition_leader_available("foobar", 98);
 
-    EXPECT_EQ(synkafka_error::network_fail, ec);
+    EXPECT_EQ(synkafka_error::network_fail, ec)
+        << "Got error: " << ec.message();
 
     std::system("cd tests/functional && docker-compose -p synkafka start");
 

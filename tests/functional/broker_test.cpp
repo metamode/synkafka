@@ -11,6 +11,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include "broker.h"
+#include "connection.h"
 #include "packet.h"
 #include "protocol.h"
 
@@ -60,30 +61,33 @@ protected:
 
 
 TEST_F(BrokerTest, ConnectionWorks) {
-    boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
+    Connection conn(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"));
+    conn.set_timeout(100);
 
-    auto err = b->wait_for_connect(100);
+    auto err = conn.connect();
     EXPECT_FALSE(err);
 }
 
 TEST_F(BrokerTest, ConnectionTimesOut)
 {
-    boost::shared_ptr<Broker> b(new Broker(io_service_, "192.0.2.0", get_env_int("KAFKA_1_PORT"), "test"));
+    Connection conn(io_service_, "192.0.2.0", get_env_int("KAFKA_1_PORT"));
+    conn.set_timeout(100);
 
-    auto err = b->wait_for_connect(100);
-    EXPECT_EQ(synkafka_error::network_timeout, err);
+    auto err = conn.connect();
+    EXPECT_EQ(boost::system::errc::timed_out, err);
 }
 
 TEST_F(BrokerTest, ConnectionTimesOutMultiThreaded)
 {
     std::vector<std::thread> threads(5);
 
-    boost::shared_ptr<Broker> b(new Broker(io_service_, "192.0.2.0", get_env_int("KAFKA_1_PORT"), "test"));
+    Connection conn(io_service_, "192.0.2.0", get_env_int("KAFKA_1_PORT"));
+    conn.set_timeout(100);
 
     for (int i = 0; i < 5 ; ++i) {
-        threads[i] = std::thread([=](){
-            auto err = b->wait_for_connect(100);
-            EXPECT_EQ(synkafka_error::network_timeout, err);
+        threads[i] = std::thread([&](){
+            auto err = conn.connect();
+            EXPECT_EQ(boost::system::errc::timed_out, err);
         });
     }
 
@@ -96,11 +100,12 @@ TEST_F(BrokerTest, ConnectionWorksMultiThreaded)
 {
     std::vector<std::thread> threads(5);
 
-    boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
+    Connection conn(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"));
+    conn.set_timeout(100);
 
     for (int i = 0; i < 5 ; ++i) {
-        threads[i] = std::thread([=](){
-            auto err = b->wait_for_connect(100);
+        threads[i] = std::thread([&](){
+            auto err = conn.connect();
             EXPECT_FALSE(err);
         });
     }
@@ -115,7 +120,7 @@ TEST_F(BrokerTest, MetadataRequest)
 {
     boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
 
-    auto err = b->wait_for_connect(1000);
+    auto err = b->connect();
     ASSERT_FALSE(err);
 
     proto::TopicMetadataRequest rq;
@@ -186,7 +191,7 @@ void test_connect_and_send_message_set(boost::asio::io_service& io_service
 {
 	boost::shared_ptr<Broker> b(new Broker(io_service, broker.host, broker.port, "test"));
 
-    auto err = b->wait_for_connect(1000);
+    auto err = b->connect();
     ASSERT_FALSE(err);
 
     proto::ProduceRequest rq{1
@@ -228,7 +233,7 @@ TEST_F(BrokerTest, SimpleProduce)
     boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
     //boost::shared_ptr<Broker> b(new Broker(io_service, "localhost", 9000, "test"));
 
-    auto err = b->wait_for_connect(1000);
+    auto err = b->connect();
     ASSERT_FALSE(err);
 
     proto::TopicMetadataRequest rq;
@@ -343,3 +348,4 @@ TEST_F(BrokerTest, SimpleProduce)
 	//  2. Verify using `./kafka-simple-consumer-shell.sh --broker-list=192.168.59.103:9092 --topic test --partition 0`
 	//     that the messages are readable and sent as expected. They also decode compressed ones transparently (hence differnt messages in those) 
 }
+

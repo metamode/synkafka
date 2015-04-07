@@ -13,7 +13,7 @@ using boost::system::error_code;
 
 namespace synkafka {
 
-std::error_code std_from_boost_ec(error_code& ec)
+std::error_code std_from_boost_ec(error_code ec)
 {
 	return std::make_error_code(static_cast<std::errc>(ec.value()));
 }
@@ -22,13 +22,9 @@ Broker::Broker(boost::asio::io_service& io_service, const std::string& host, int
 	:client_id_(client_id)
 	,identity_({0, host, port})
 	,strand_(io_service)
-	,resolver_(io_service)
-	,socket_(io_service)
+	,conn_(io_service, host, port)
 	,next_correlation_id_(1)
 	,in_flight_()
-	,connection_state_(StateInit)
-	,connection_mu_()
-	,connection_cv_()
 	,response_handler_state_(RespHandlerStateIdle)
 	,header_buffer_(new buffer_t(sizeof(int32_t) + sizeof(int32_t))) // Response header is just a single length prefix plus the correlation id currently
 	,response_buffer_()
@@ -43,32 +39,7 @@ Broker::~Broker()
 
 void Broker::close()
 {	
-	std::lock_guard<std::mutex> lk(connection_mu_);
-
-	if (connection_state_ == StateClosed) {
-		return;
-	}
-
-	log->debug("Closing connection to broker ") << identity_.host << ":"<< identity_.port;
-
-	error_code ignored;
-	socket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored);
-	socket_.close(ignored);
-	connection_state_ = StateClosed;
-
-	// Notify anyone waiting on connection
-	connection_cv_.notify_all();
-}
-
-bool Broker::is_connected()
-{
-	std::lock_guard<std::mutex> lk(connection_mu_);
-	return connection_state_ == StateConnected;
-}
-bool Broker::is_closed()
-{
-	std::lock_guard<std::mutex> lk(connection_mu_);
-	return connection_state_ == StateClosed;
+	conn_.close();
 }
 
 std::future<PacketDecoder> Broker::call(int16_t api_key, std::shared_ptr<PacketEncoder> request_packet)
@@ -88,148 +59,19 @@ std::future<PacketDecoder> Broker::call(int16_t api_key, std::shared_ptr<PacketE
 	return f;
 }
 
-std::error_code Broker::wait_for_connect(int32_t milliseconds)
+std::error_code Broker::connect()
 {
-	std::unique_lock<std::mutex> lk(connection_mu_);
-
-	log->debug("Wait for connect to broker ") 
-		<< identity_.host << ":"<< identity_.port
-		<< " connection state: " << connection_state_
-		<< " timeout: " << milliseconds << "ms";
-
-	switch (connection_state_) 
-	{
-	case StateConnected:
-		return make_error_code(synkafka_error::no_error);
-
-	default: // to satisfy compiler that we cuaght all cases with non-enum constants
-	case StateClosed:
-		return make_error_code(synkafka_error::network_fail);
-
-	case StateConnecting:
-		{
-			// Already started connecting but not done, wait for completion
-			auto ok = connection_cv_.wait_for(lk
-											 ,std::chrono::milliseconds(milliseconds)
-											 ,[this]{ return connection_state_ != StateConnecting; }
-											 );
-
-			// Either we timed out while state is still StateConnecting (!ok)
-			// or state did change, but we are now closed.
-			if (!ok) {
-				log->debug("");
-				return make_error_code(synkafka_error::network_timeout);
-			}
-
-			if (connection_state_ == StateClosed) {
-				log->debug("wait for connection failed: closed");
-				return make_error_code(synkafka_error::network_fail);
-			}
-
-			// We connected OK within timeout!
-			return make_error_code(synkafka_error::no_error);
-		}
-
-	case StateInit:
-		// First connection attempt, start connecting
-		connection_state_ = StateConnecting;
-
-		// Release lock while we start async process - no other thread can do this now.
-		// We //could// cause a soft deadlock if an exception is thrown here or async connect
-		// fails but this is true in many other places and is gaurded against by the timeout
-		// that other threads have when waiting to see if we are connected.
-		lk.unlock();
-
-		log->debug("Starting connection to broker ") << identity_.host << ":"<< identity_.port;
-
-		tcp::resolver::query query(identity_.host, std::to_string(identity_.port));
-		resolver_.async_resolve(query
-							   ,strand_.wrap(boost::bind(&Broker::handle_resolve
-							   							,shared_from_this()
-							   							,boost::asio::placeholders::error
-							   							,boost::asio::placeholders::iterator
-							   							)
-							   				)
-							   );
-
-		// Now we recursively wait for our own connection
-		// NOTE: that we unlocked mutex above so we can call this safely without deadlock
-		return wait_for_connect(milliseconds);
-	}
-}
-
-void Broker::handle_resolve(const error_code& ec, tcp::resolver::iterator endpoint_iterator)
-{
-	log->debug("handle_resolve ec: ") << (ec ? ec.message() : "0");
-
-	if (ec) {
-		// not much more we can do...
-		close();
-		return;
-	}
-
-	// Attempt a connection to the first endpoint in the list. Each endpoint
-    // will be tried until we successfully establish a connection.
-    tcp::endpoint endpoint = *endpoint_iterator;
-
-    socket_.async_connect(endpoint
-    					 ,strand_.wrap(boost::bind(&Broker::handle_connect
-    					 						  ,shared_from_this()
-    					 						  ,boost::asio::placeholders::error
-    					 						  ,++endpoint_iterator
-    					 						  )
-    					 			  )
-    					 );
-}
-
-void Broker::handle_connect(const error_code& ec, tcp::resolver::iterator endpoint_iterator)
-{
-	log->debug("handle_connect ec: ") << (ec ? ec.message() : "0");
-
-    if (!ec)
-    {
-    	std::unique_lock<std::mutex> lk(connection_mu_);
-
-      	// The connection was successful.
-    	connection_state_ = StateConnected;
-
-    	// Signal any waiters that we are now connected
-    	// we'll unlock first to allow at least one of them to aquire
-    	// and return immediately. mutex is onlu protecting connection_state_ anyway
-    	lk.unlock();
-    	connection_cv_.notify_all();
-
-    	// See if anything was waiting to send
-    	if (!in_flight_.empty()) {
-    		write_next_request();
-    	}
-    }
-    else if (endpoint_iterator != tcp::resolver::iterator())
-    {
-    	// The connection failed. Try the next endpoint in the list.
-    	socket_.close();
-    	tcp::endpoint endpoint = *endpoint_iterator;
-   		socket_.async_connect(endpoint
-    	     				 ,strand_.wrap(boost::bind(&Broker::handle_connect
-	    					 						  ,shared_from_this()
-	    					 						  ,boost::asio::placeholders::error
-	    					 						  ,++endpoint_iterator
-	    					 						  )
-	    					 			  )
-	    					 );
-    }
-    else
-    {
-    	close();
-    }
+	return std_from_boost_ec(conn_.connect());
 }
 
 void Broker::push_request(std::shared_ptr<InFlightRequest> req)
 {
 	log->debug("push_request");
 
-	if (is_closed()) {
-		// If we already closed connection, don't even bother queueing it, return error code now
+	if (conn_.is_closed()) {
+		// If we already closed connection, don't even bother queueing it
+		log->debug("push_request failing request: already closed connection");
+		req->response_promise.set_exception(std::make_exception_ptr(make_error_code(synkafka_error::network_fail)));
 		return;
 	}
 
@@ -241,7 +83,7 @@ void Broker::push_request(std::shared_ptr<InFlightRequest> req)
 
 	// If we are connected, do the async write
 	// if not, then write_next_request will be called on connection success
-	if (is_connected()) {
+	if (conn_.is_connected()) {
 		write_next_request();
 	}
 }
@@ -257,8 +99,7 @@ void Broker::write_next_request()
 	auto req = in_flight_.begin();
 
 	if (req->sent) {
-		// TODO what was I smoking? This can't be right
-		// Already sent that means any later requests are also
+		// TODO: figure out why I added this. Is it even possible?
 		return;
 	}
 
@@ -282,17 +123,16 @@ void Broker::write_next_request()
 
 	std::vector<boost::asio::const_buffer> sequence({});
 
-	boost::asio::async_write(socket_
-							,std::vector<boost::asio::const_buffer>{boost::asio::buffer(header_buffer.data(), header_buffer.size())
-															       ,boost::asio::buffer(request_buffer.data(), request_buffer.size())
-															       }
-					        ,strand_.wrap(boost::bind(&Broker::handle_write
-					        						 ,shared_from_this()
-						     		                 ,boost::asio::placeholders::error
-						     		                 ,boost::asio::placeholders::bytes_transferred
-						     		                 )
-					        			 )
-					        );
+	conn_.async_write(std::vector<boost::asio::const_buffer>{boost::asio::buffer(header_buffer.data(), header_buffer.size())
+									       					,boost::asio::buffer(request_buffer.data(), request_buffer.size())
+									       					}
+					  ,strand_.wrap(boost::bind(&Broker::handle_write
+					  						   ,shared_from_this()
+			  		                 		   ,boost::asio::placeholders::error
+			  		                 		   ,boost::asio::placeholders::bytes_transferred
+			  		                 		   )
+					  			   )
+					  );
 }
 
 void Broker::handle_write(const error_code& ec, size_t bytes_written)
@@ -320,7 +160,7 @@ void Broker::handle_write(const error_code& ec, size_t bytes_written)
 
 void Broker::response_handler_actor(const error_code& ec, size_t n)
 {
-	if (!is_connected() || in_flight_.empty()) {
+	if (!conn_.is_connected() || in_flight_.empty()) {
 		return;
 	}
 
@@ -342,15 +182,14 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 		log->debug("response_handler_actor Idle -> ReadHeader ");
 		
 		// Initiate new read (we know no other read is occuring since we only execute on strand)
-		boost::asio::async_read(socket_
-							   ,boost::asio::buffer(&header_buffer_->at(0), header_buffer_->size())
-						  	   ,strand_.wrap(boost::bind(&Broker::response_handler_actor
-					   				  				   	,shared_from_this()
-								                   		,boost::asio::placeholders::error
-								                   		,boost::asio::placeholders::bytes_transferred
-								                   		)
-						  			   		)
-						  	   );
+		conn_.async_read(boost::asio::buffer(&header_buffer_->at(0), header_buffer_->size())
+						,strand_.wrap(boost::bind(&Broker::response_handler_actor
+					   				  			 ,shared_from_this()
+								                 ,boost::asio::placeholders::error
+								                 ,boost::asio::placeholders::bytes_transferred
+								                 )
+						  			 )
+						);
 		break;
 
 	case RespHandlerStateReadHeader:
@@ -393,15 +232,14 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 			log->debug("response_handler_actor waiting for reponse read of ") << response_len << " bytes. Correlation ID matched: " << h.correlation_id;
 
 			// Initiate new read (we know no other read is occuring since we only execute on strand)
-			boost::asio::async_read(socket_
-								   ,boost::asio::buffer(&response_buffer_->at(0), response_buffer_->size())
-							  	   ,strand_.wrap(boost::bind(&Broker::response_handler_actor
-						   		   						    ,shared_from_this()
-								   		                    ,boost::asio::placeholders::error
-								   		                    ,boost::asio::placeholders::bytes_transferred
-								   		                    )
-							  	   			    )
-							  	   );
+			conn_.async_read(boost::asio::buffer(&response_buffer_->at(0), response_buffer_->size())
+							,strand_.wrap(boost::bind(&Broker::response_handler_actor
+						  						     ,shared_from_this()
+							                         ,boost::asio::placeholders::error
+							                         ,boost::asio::placeholders::bytes_transferred
+							                         )
+										 )
+							);
 		}
 		break;
 

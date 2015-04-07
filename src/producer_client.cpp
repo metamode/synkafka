@@ -28,6 +28,7 @@ ProducerClient::ProducerClient(const std::string& brokers, int num_io_threads)
 	,asio_threads_(num_io_threads)
 	,stopping_(false)
 	,client_id_("synkafka_client")
+	,last_meta_error_()
 {
 	broker_configs_ = string_to_brokers(brokers);
 
@@ -93,11 +94,15 @@ std::error_code ProducerClient::check_topic_partition_leader_available(const sli
 	auto broker = get_broker_for_partition(p);
 
 	if (broker == nullptr) {
+		if (last_meta_error_) {
+			return last_meta_error_;
+		}
 		return make_error_code(kafka_error::UnknownTopicOrPartition);
 	}
 
 	// We got a broker! Try to connect (returns immediately if allready connected)
-	auto ec = broker->wait_for_connect(connect_timeout_);
+	broker->set_connect_timeout(connect_timeout_);
+	auto ec = broker->connect();
 
 	if (ec) {
 		close_broker(std::move(broker));
@@ -205,13 +210,19 @@ void ProducerClient::refresh_meta(int attempts)
 									   ,client_id_
 									   ));
 
-				auto ec = broker->wait_for_connect(connect_timeout_);
+				broker->set_connect_timeout(connect_timeout_);
+				last_meta_error_ = broker->connect();
 
-				if (!ec) {
+				if (!last_meta_error_) {
 					// Connected OK. we are done.
 					break;
 				}
 			}
+		}
+
+		if (broker == nullptr) {
+			// Still not connected? not much more we can do
+			return;
 		}
 	}
 
@@ -220,12 +231,15 @@ void ProducerClient::refresh_meta(int attempts)
 	proto::TopicMetadataRequest req;
 	proto::MetadataResponse resp;
 
+	std::error_code ec;
+
 	// Requests are tiny 32 bytes is enough for now
 	auto enc = std::make_shared<PacketEncoder>(32);
 	enc->io(req);
 
 	if (!enc->ok()) {
 		log->error("Failed to encode Metadata request: ") << enc->err_str();
+		ec = make_error_code(synkafka_error::encoding_error);
 		return;
 	}
 
@@ -235,12 +249,10 @@ void ProducerClient::refresh_meta(int attempts)
     // correct node. This is docuemented in the public API in header file.
     auto status = decoder_future.wait_for(std::chrono::milliseconds(connect_timeout_));
 
-    bool failed = false;
-
     if (status != std::future_status::ready) {
-    	failed = true;
 		log->error("Failed to get Metadata: connection timedout, broker: ")
 			<< broker->get_config().host << ":" << broker->get_config().port;
+		ec = make_error_code(synkafka_error::network_timeout);
     } else {
 
 	    // OK we got a result, decode it into our meta data
@@ -250,30 +262,40 @@ void ProducerClient::refresh_meta(int attempts)
 		    decoder.io(resp);
 
 			if (!decoder.ok()) {
-				failed = true;
 				log->error("Failed to get Metadata: decoder error: ") << decoder.err_str();
+				ec = make_error_code(synkafka_error::decoding_error);
 			}
 	    }
-	    catch (const std::error_code& ec)
+	    catch (const std::error_code& errc)
 	    {
-	    	failed = true;
-	    	log->error("Failed to get Metadata: ") << ec.message();
+	    	log->error("Failed to get Metadata: ") << errc.message();
+	    	ec = errc;
+	    }
+	    catch (const std::future_error& e)
+	    {
+	    	log->error("Failed to get Metadata: future err: ") << e.code().message();
+	    	ec = e.code();
 	    }
 	    catch (const std::exception& e)
 	    {
-	    	failed = true;
 	    	log->error("Failed to get Metadata: unexpected exception: ") << e.what();
+	    	ec = make_error_code(synkafka_error::unknown);
 	    }
 	    catch (...)
 	    {
-	    	failed = true;
 	    	log->error("Failed to get Metadata: unknown exception");
+	    	ec = make_error_code(synkafka_error::unknown);
 	    }
     }
 
-    if (failed) {
+    if (ec) {
     	// Close and reset broker that timed out
     	close_broker(std::move(broker));
+
+    	{
+    		std::lock_guard<std::mutex> lk(mu_);
+    		last_meta_error_ = ec;
+    	}
 
 		if (attempts < retry_attempts_) {
 			return refresh_meta(attempts + 1);
@@ -287,6 +309,9 @@ void ProducerClient::refresh_meta(int attempts)
 	// First lets add Broker objects if we don't know about them already
 	{
 		std::lock_guard<std::mutex> lk(mu_);
+
+		// No error, clear last error 
+		last_meta_error_ = make_error_code(synkafka_error::no_error);
 
 		std::set<int32_t> live_broker_ids; 
 

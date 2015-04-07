@@ -9,6 +9,7 @@ from yaml import load
 import os
 import re
 from subprocess import call
+import sys
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -35,4 +36,4 @@ rc = call('tup ./build-debug', shell=True);
 if rc:
 	exit(rc)
 
-call(' '.join(env_vars) + ' ./build-debug/tests/functional/synkafka_func_test', shell=True);
+call(' '.join(env_vars) + ' ./build-debug/tests/functional/synkafka_func_test ' + ' '.join(sys.argv[1:]), shell=True);

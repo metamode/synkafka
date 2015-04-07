@@ -147,6 +147,7 @@ private:
 	std::atomic<bool>								stopping_;
 
 	std::string 									client_id_;
+	std::error_code 								last_meta_error_;
 };
 
 }

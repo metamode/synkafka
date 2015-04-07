@@ -22,6 +22,9 @@ enum class synkafka_error
 	message_set_full,
 	compression_lib_error,
 	client_stopping,
+	encoding_error,
+	decoding_error,
+	unknown,
 };
 
 class synkafka_error_category_impl
@@ -48,6 +51,12 @@ public:
 			return "Error (de)compressing buffer from compression library";
 		case synkafka_error::client_stopping:
 			return "Client has shut down";
+		case synkafka_error::encoding_error:
+			return "Error encoding protocol bytes";
+		case synkafka_error::decoding_error:
+			return "Error decoding protocol bytes";
+		case synkafka_error::unknown:
+			return "Unknown error";
 		default:
 			return "Invalid Synkafka Error";
 		}
@@ -69,7 +78,7 @@ public:
 
 inline const std::error_category& synkafka_category()
 {
-	static kafka_category_impl instance;
+	static synkafka_error_category_impl instance;
   	return instance;
 }
 
