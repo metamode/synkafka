@@ -38,8 +38,8 @@ class RPC
 public:
 
 	void exec(error_code ec = error_code()
-				   ,size_t length = 0
-				   )
+			 ,size_t length = 0
+			 )
 	{
 		if (!ec) {
 			reenter (this)
@@ -50,14 +50,14 @@ public:
 				// now we handled our own write success/fail
 				// we can just yield to the pipeline to coordinate our
 				// reads with any others in flight
-				// yield pipeline_.waiting_on_read(this);
+				// yield pipeline_.sent(this);
 
 				// Now we are back into reading state as called by pipeline processor
 
 				// read response
 
-				// when done, failed, resolve promise
-				// set complete_ = true
+				// when done/failed, resolve promise
+				// pipeline_.done(this);
 			}
 		}
 	}
@@ -71,29 +71,42 @@ public:
 		// Assign seq id
 		// set rpc processor to be bound call to process()
 		// push to queue
-		// Start exec - this will do all the writing, up to the point the
-		// RPC needs to be read from wire
-		// rpc.exec()
+		// async_write -> handle_write(rpc)
 	}
 
-	void waiting_on_read(RPC& rpc)
+	void handle_write(RPC& rpc, ec, n)
 	{
-		if (rpc.seq == q_.front().seq)
-		{
-			// Waiting RPC is at front of queue
-			// initiate read processing
-			process();
+		// if fail clean up
+		// otherwise 
+		if (read_q_head_.seq == rpc.seq) {
+			// We are at head of read q
 		}
 	}
 
-	void process(error_code ec = error_code(), size_t length = 0)
+	void sent(RPC& rpc)
 	{
-		// rpc = q_.front();
-		// rpc.exec(ec, length);
-		// if (rpc.complete()) {
-		//		q_.pop()
-		// 		if (!q_.empty()) q_.front().exec();
-		// }
+		rpc.sent = true;
+		if (rpc.seq == q_.front().seq)
+		{
+			// Waiting RPC is at front of queue
+			// continue it's read processing
+			rpc();
+		}
+	}
+
+	void done(RPC& rpc)
+	{
+		// called by rpc onces it's completed handling
+		// by construction it can only be called by the head of the queue
+		// so pop that off
+		// q.pop();
+		// Then if there are any more RPCs in queue, get the next one and resume it.
+		// take care not to call coroutine while write is still pending
+		auto rpc = q_.front();
+		if (rpc.sent) {
+			// Send completed, finish reading
+			rpc();
+		}
 	}
 
 

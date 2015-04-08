@@ -44,8 +44,6 @@ void Broker::close()
 
 std::future<PacketDecoder> Broker::call(int16_t api_key, std::shared_ptr<PacketEncoder> request_packet)
 {
-	// Correlation ID is choosen when we actual write to ensure correct sequencing
-	// not sure it matters provided the writes are same order as queuing but it's simpler.
 	std::shared_ptr<InFlightRequest> r(new InFlightRequest({proto::RequestHeader{api_key, KafkaApiVersion, 0, client_id_}
 				     			 						   ,std::move(request_packet)
 				     			 						   ,false
@@ -81,11 +79,7 @@ void Broker::push_request(std::shared_ptr<InFlightRequest> req)
 	// Insert into our "queue"
 	in_flight_.push_back(std::move(*req));
 
-	// If we are connected, do the async write
-	// if not, then write_next_request will be called on connection success
-	if (conn_.is_connected()) {
-		write_next_request();
-	}
+	write_next_request();
 }
 
 void Broker::write_next_request()
@@ -103,37 +97,31 @@ void Broker::write_next_request()
 		return;
 	}
 
-	// Write it to socket, we have separate bufers for header which we only just got the correlationid for
-	// and actual request body which was passed in from external thread so write them as one with a const
-	// buffer sequence
-	std::vector<slice> buffers;
-	buffers.push_back(req->packet->get_as_slice(false));
-
 	// Now push on request header to buffer sequence such that it will write packet length for whole sequence
 	// without copying the whole encoded message...
 	PacketEncoder header_encoder(64);
 	header_encoder.io(req->header);
 	if (!header_encoder.ok()) {
-		// TODO error out the request and pop it - connection can stay open
+		log->error("write_next_request failing request: header encoding error: ") << header_encoder.err_str();
+		req->response_promise.set_exception(std::make_exception_ptr(make_error_code(synkafka_error::encoding_error)));
+		in_flight_.pop_front();
 		return;
 	}
 
 	auto request_buffer = req->packet->get_as_slice(false);
 	auto header_buffer = header_encoder.get_as_buffer_sequence_head(request_buffer.size());
 
-	std::vector<boost::asio::const_buffer> sequence({});
-
 	conn_.async_write(std::vector<boost::asio::const_buffer>{boost::asio::buffer(header_buffer.data(), header_buffer.size())
 									       					,boost::asio::buffer(request_buffer.data(), request_buffer.size())
 									       					}
-					  ,strand_.wrap(boost::bind(&Broker::handle_write
-					  						   ,shared_from_this()
-			  		                 		   ,boost::asio::placeholders::error
-			  		                 		   ,boost::asio::placeholders::bytes_transferred
-			  		                 		   )
-					  			   )
-					  );
-}
+					 ,strand_.wrap(boost::bind(&Broker::handle_write
+					 						  ,shared_from_this()
+			  		                		  ,boost::asio::placeholders::error
+			  		                		  ,boost::asio::placeholders::bytes_transferred
+			  		                		  )
+					 			  )
+					 );
+
 
 void Broker::handle_write(const error_code& ec, size_t bytes_written)
 {
@@ -160,7 +148,7 @@ void Broker::handle_write(const error_code& ec, size_t bytes_written)
 
 void Broker::response_handler_actor(const error_code& ec, size_t n)
 {
-	if (!conn_.is_connected() || in_flight_.empty()) {
+	if (in_flight_.empty()) {
 		return;
 	}
 
@@ -168,7 +156,7 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 
 	// Any read error is treated as fatal since we rely on ordering to work correctly
 	if (ec) {
-		log->debug("response_handler_actor read error, failing request: ") << (ec ? ec.message() : "0") << " bytes_read: " << n;
+		log->debug("response_handler_actor read error, failing request: ") << ec.message() << " bytes_read: " << n;
 		req->response_promise.set_exception(std::make_exception_ptr(boost::system::system_error(ec)));
 		close();
 		return;
@@ -196,7 +184,7 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 		{
 			response_handler_state_ = RespHandlerStateReadResp;
 		
-			log->debug("response_handler_actor ReadHeader -> ReadResponse ec:") << (ec ? ec.message() : "0") << " bytes read: " << n;
+			log->debug("response_handler_actor ReadHeader -> ReadResponse ec: ") << (ec ? ec.message() : "0") << " bytes read: " << n;
 
 			// We now have the response length prefix and the header
 
