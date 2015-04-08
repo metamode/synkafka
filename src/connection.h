@@ -48,18 +48,22 @@ public:
 
 	// Access the socket for reading/writing, this will simply proxy through to composed async read/write
 	// on underlying socket. Provided to avoid leaking actual socket object from abstraction.
-	// handler must be wrapped on a strand or called from a single asio thread to avoid races.
+	// Handler is automatically wrapped by the connection's strand to ensure all handlers are serialised.
+	// This uses boost's composed async_read/write methods which require that caller ensure only one
+	// read/write operation can be in-flight on the socket at once.
 	template<typename MutableBufferSequence, typename ReadHandler>
 	void async_read(const MutableBufferSequence& buffers, ReadHandler handler)
 	{
-		boost::asio::async_read(pimpl_->socket_, buffers, handler);
+		boost::asio::async_read(pimpl_->socket_, buffers, pimpl_->strand_.wrap(handler));
 	}
 
 	template<typename ConstBufferSequence, typename WriteHandler>
 	void async_write(const ConstBufferSequence& buffers, WriteHandler handler)
 	{
-		boost::asio::async_write(pimpl_->socket_, buffers, handler);
+		boost::asio::async_write(pimpl_->socket_, buffers, pimpl_->strand_.wrap(handler));
 	}
+
+	boost::asio::io_service::strand& get_strand() { return pimpl_->strand_; }
 
 	// Debugging
 	friend std::ostream& operator<<(std::ostream& os, const Connection& conn);
@@ -80,6 +84,7 @@ private:
 
 		tcp::resolver::query 			dns_query_;
 		tcp::socket 					socket_;
+		boost::asio::io_service::strand strand_;
 		tcp::resolver  					resolver_;
 		int32_t 						timeout_ms_;
 		std::mutex 						mu_;

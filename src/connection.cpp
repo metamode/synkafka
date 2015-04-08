@@ -11,6 +11,7 @@ namespace synkafka
 Connection::impl::impl(boost::asio::io_service& io_service, const std::string& host, int32_t port)
 	:dns_query_(host, std::to_string(port))
 	,socket_(io_service)
+	,strand_(io_service)
 	,resolver_(io_service)
 	,timeout_ms_(1000)
 	,mu_()

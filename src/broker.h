@@ -113,7 +113,7 @@ public:
 	void push_request(std::shared_ptr<InFlightRequest> req);
 	void write_next_request();
 
-	void handle_write(const error_code& ec, size_t bytes_written);
+	void handle_write(InFlightRequest* req, const error_code& ec, size_t bytes_written);
 
 	void response_handler_actor(const error_code& ec, size_t n = 0);
 
@@ -123,6 +123,7 @@ private:
 
 	enum {
 		RespHandlerStateIdle,
+		RespHandlerStatePendingHeader,
 		RespHandlerStateReadHeader,
 		RespHandlerStateReadResp,
 	};

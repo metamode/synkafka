@@ -116,33 +116,39 @@ void Broker::write_next_request()
 									       					}
 					 ,strand_.wrap(boost::bind(&Broker::handle_write
 					 						  ,shared_from_this()
+					 						  ,&(*req)
 			  		                		  ,boost::asio::placeholders::error
 			  		                		  ,boost::asio::placeholders::bytes_transferred
 			  		                		  )
 					 			  )
 					 );
+}
 
 
-void Broker::handle_write(const error_code& ec, size_t bytes_written)
+void Broker::handle_write(InFlightRequest* req, const error_code& ec, size_t bytes_written)
 {
 	if(in_flight_.empty()) {
 		log->emerg("Write completed but in_flight queue is empty");
 		return;
 	}
 
-	auto req = in_flight_.begin();
 	if (ec) {
 		// Fail the request
 		log->debug("handle_write failing request: ") << (ec ? ec.message() : "0") << " bytes_written: " << bytes_written;
 		req->response_promise.set_exception(std::make_exception_ptr(boost::system::system_error(ec)));
+		// TODO this is wrong, req is not necessarily at front of queue, either need to scan queue until we find it
+		// or defer cleanup until some later time and pop all failed requests from front...
 		in_flight_.pop_front();
 	} else {
 		req->sent = true;
 
 		if (response_handler_state_ == RespHandlerStateIdle) {
+			response_handler_state_ = RespHandlerStatePendingHeader;
 			log->debug("handle_write sent OK (") << bytes_written << " bytes written). Starting Response handler.";
 			strand_.post(boost::bind(&Broker::response_handler_actor, shared_from_this(), error_code(), 0));
-		} 
+		} else {
+			log->debug("handle_write sent OK (") << bytes_written << " bytes written). Response handler already running.";
+		}
 	}
 }
 
@@ -165,6 +171,9 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 	switch (response_handler_state_)
 	{
 	case RespHandlerStateIdle:
+		// Nothing do do by definition...
+		break;
+	case RespHandlerStatePendingHeader:
 		response_handler_state_ = RespHandlerStateReadHeader;
 
 		log->debug("response_handler_actor Idle -> ReadHeader ");
@@ -262,6 +271,8 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 			if (!in_flight_.empty()) {
 				req = in_flight_.begin();
 				if (req->sent) {
+					response_handler_state_ = RespHandlerStatePendingHeader;
+					log->debug("response_handler_actor ReadResp -> RespHandlerStatePendingHeader for next queued response");
 					// Move right back to reading next request
 					response_handler_actor(ec, 0);
 				} 

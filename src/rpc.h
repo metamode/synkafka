@@ -1,11 +1,17 @@
 #pragma once
 
+#include <functional>
+#include <future>
 #include <memory>
+#include <vector>
 
 #include <boost/asio.hpp>
 #include <boost/asio/coroutine.hpp>
 
-
+#include "buffer.h"
+#include "connection.h"
+#include "constants.h"
+#include "packet.h"
 
 using boost::asio::ip::tcp;
 using boost::system::error_code;
@@ -13,103 +19,104 @@ using boost::system::error_code;
 namespace synkafka
 {
 
-template<RequestType, ResponseType>
-class RPC : boost::asio::coroutine
-{
-public:
-	RPC(std::shared_ptr<tcp::socket> socket, std::shared_ptr<boost::asio::io_service::strand> strand);
-
-	// Coroutine to handle continuing this request
-	void operator()(error_code ec = error_code()
-				   ,size_t length = 0
-				   );
-
-private:
-	std::shared_ptr<tcp::socket>						socket_;
-	std::shared_ptr<boost::asio::io_service::strand>	strand_;
-	shared_buffer_t										buffer_;
-};
-
-
-
-
 class RPC
 {
 public:
+	RPC() = default;
+	RPC(int16_t api_key, std::shared_ptr<PacketEncoder> encoder, const std::string& client_id);
 
-	void exec(error_code ec = error_code()
-			 ,size_t length = 0
-			 )
+	void set_seq(int32_t seq);
+	int32_t get_seq() const;
+
+	const std::vector<boost::asio::const_buffer> encode_request();
+
+	shared_buffer_t get_recv_buffer();
+	std::future<PacketDecoder> get_future();
+
+	void fail(std::error_code ec);
+
+	template<typename ErrC>
+	void fail(ErrC errc)
 	{
-		if (!ec) {
-			reenter (this)
-			{
-				// encode request
-				// yield async_write(.., this);
-
-				// now we handled our own write success/fail
-				// we can just yield to the pipeline to coordinate our
-				// reads with any others in flight
-				// yield pipeline_.sent(this);
-
-				// Now we are back into reading state as called by pipeline processor
-
-				// read response
-
-				// when done/failed, resolve promise
-				// pipeline_.done(this);
-			}
-		}
+		fail(make_error_code(errc));
 	}
+
+	void resolve(PacketDecoder&& decoder);
+
+	void swap(RPC& other);
+
+private:
+	proto::RequestHeader			header_;
+	std::shared_ptr<PacketEncoder>	encoder_;
+	shared_buffer_t 				response_buffer_;
+	std::promise<PacketDecoder> 	response_promise_;
 };
 
-class RPCPipeline
+
+typedef std::function<void (RPC&&)> rpc_success_handler_t;
+
+class RPCQueue : protected boost::asio::coroutine
 {
 public:
-	void send(RPC&& rpc)
+	RPCQueue(std::shared_ptr<Connection> conn, rpc_success_handler_t on_success);
+
+	virtual void operator()(error_code ec = error_code()
+				   		   ,size_t length = 0
+				   		   ) = 0;
+
+	void push(RPC&& rpc);
+
+protected:
+
+	// All of these MUST be called on connection's strand
+	void stranded_push(RPC& rpc);
+
+	virtual bool should_increment_seq_on_push() const = 0;
+
+	void fail_all(std::error_code ec);
+	void fail_all(error_code ec); // Boost error_code..
+	RPC* next();
+	void pop();
+
+	struct Impl
 	{
-		// Assign seq id
-		// set rpc processor to be bound call to process()
-		// push to queue
-		// async_write -> handle_write(rpc)
-	}
+		Impl(std::shared_ptr<Connection> conn, rpc_success_handler_t on_success);
 
-	void handle_write(RPC& rpc, ec, n)
-	{
-		// if fail clean up
-		// otherwise 
-		if (read_q_head_.seq == rpc.seq) {
-			// We are at head of read q
-		}
-	}
+		std::shared_ptr<Connection>			conn_;
+		std::list<RPC> 						q_;
+		int32_t        						next_seq_; // only really needed for send queue but..
+		rpc_success_handler_t				on_success_;
+	};
 
-	void sent(RPC& rpc)
-	{
-		rpc.sent = true;
-		if (rpc.seq == q_.front().seq)
-		{
-			// Waiting RPC is at front of queue
-			// continue it's read processing
-			rpc();
-		}
-	}
+	std::shared_ptr<Impl> pimpl_;	
+};
 
-	void done(RPC& rpc)
-	{
-		// called by rpc onces it's completed handling
-		// by construction it can only be called by the head of the queue
-		// so pop that off
-		// q.pop();
-		// Then if there are any more RPCs in queue, get the next one and resume it.
-		// take care not to call coroutine while write is still pending
-		auto rpc = q_.front();
-		if (rpc.sent) {
-			// Send completed, finish reading
-			rpc();
-		}
-	}
+class RPCSendQueue : public RPCQueue
+{
+public:
+	RPCSendQueue(std::shared_ptr<Connection> conn, rpc_success_handler_t on_success)
+		: RPCQueue(std::move(conn), on_success)
+	{}
 
+	virtual void operator()(error_code ec = error_code()
+				   ,size_t length = 0
+				   ) override;
+protected:
+	virtual bool should_increment_seq_on_push() const { return true; }
+};
 
+class RPCRecvQueue : public RPCQueue
+{
+public:
+	RPCRecvQueue(std::shared_ptr<Connection> conn, rpc_success_handler_t on_success)
+		: RPCQueue(std::move(conn), on_success)
+	{}
+
+	virtual void operator()(error_code ec = error_code()
+				   ,size_t length = 0
+				   ) override;
+
+	virtual bool should_increment_seq_on_push() const { return false; }
 };
 
 }
