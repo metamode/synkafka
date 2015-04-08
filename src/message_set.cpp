@@ -10,6 +10,7 @@ MessageSet::MessageSet()
 	, max_message_size_(1000000) // Kafka default
 	, compression_(COMP_None)
 	, encoded_size_(0)
+	, owned_buffers_()
 {}
 
 void MessageSet::set_compression(CompressionType comp)
@@ -22,8 +23,24 @@ void MessageSet::set_max_message_size(int max_message_size)
 	max_message_size_ = max_message_size;
 }
 
-std::error_code MessageSet::push(const slice& message, const slice& key)
+std::error_code MessageSet::push(const slice& message, const slice& key, bool copy)
 {
+	if (copy) {
+		// Copy slices into an internal buffer to "save" them
+		buffer_t buff(key.size() + message.size());
+
+		std::memcpy(&buff[0], key.data(), key.size());
+		std::memcpy(&buff[key.size()], message.data(), message.size());
+
+		Message m{slice(&buff[0], key.size())
+				 ,slice(&buff[key.size()], message.size())
+				 };
+
+		owned_buffers_.push_back(std::move(buff));
+
+		return push(std::move(m));
+	}
+
 	Message m{key, message};
 	return push(std::move(m));
 }

@@ -72,11 +72,22 @@ public:
 
 protected:
 	// Protect default constructor as this should only be used derived from
-	PacketCodec() : err_(ERR_NONE), err_stream_(""), cursor_(0) {} 
+	PacketCodec() : err_(ERR_NONE), err_stream_(""), cursor_(0), size_(0) {}
+
+	// Called to "increment" cursor
+	// takes care of extending size_ if cursor is already at end before update
+	void update_size_after_write(size_t bytes)
+	{
+		if (cursor_ == size_) {
+			size_ += bytes;
+		}
+		cursor_ += bytes;
+	}
 
 	err_t				err_;
 	std::stringstream 	err_stream_;
 	size_t 				cursor_;
+	size_t				size_;
 };
 
 class PacketEncoder : public PacketCodec
@@ -114,6 +125,8 @@ public:
 
 private:
 	void update_length(size_t extra_length);
+
+	void ensure_space_for(size_t);
 
 	buffer_t 	buff_;
 };

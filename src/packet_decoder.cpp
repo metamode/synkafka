@@ -14,7 +14,8 @@
 namespace synkafka {
 
 PacketDecoder::PacketDecoder(shared_buffer_t buffer)
-	: buff_(buffer)
+	: PacketCodec()
+	, buff_(buffer)
 {}
 
 void PacketDecoder::io(int8_t& value)

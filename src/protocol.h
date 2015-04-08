@@ -39,6 +39,8 @@ inline void kafka_proto_io(PacketCodec& p, ResponseHeader& h)
 
 struct TopicMetadataRequest
 {
+	static const int16_t api_key = ApiKey::MetadataRequest;
+
 	std::deque<std::string> topic_names;
 };
 
@@ -150,6 +152,8 @@ inline void kafka_proto_io(PacketCodec& p, ProduceTopic& pb)
 
 struct ProduceRequest
 {
+	static const int16_t api_key = ApiKey::ProduceRequest;
+
 	int16_t 					required_acks;
 	int32_t 					timeout;
 	std::deque<ProduceTopic> 	topics;

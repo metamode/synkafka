@@ -1,7 +1,9 @@
 #pragma once
 
 #include <deque>
+#include <list>
 
+#include "buffer.h"
 #include "constants.h"
 #include "packet.h"
 #include "slice.h"
@@ -40,7 +42,10 @@ public:
 	// For compressed batches this is potentially sub-optimal but since we can't know until we compressed
 	// the whole set how large the compressed message will be, we must be conservative and assume that
 	// worst case compression and headers.
-	std::error_code push(const slice& message, const slice& key);
+	// If copy = true, a copy of value and key is made to an internal buffer so the caller doesn't need
+	// to keep slices valid. If if's omitted or set to false explicitly then caller MUST ensure data backing
+	// slices remains valid until MessageSet is destroyed (or produce() call returns if passed to that).
+	std::error_code push(const slice& message, const slice& key, bool copy = false);
 	std::error_code push(Message&& m);
 
 	// Allow encode/decode like the primative structs, by the time we get to actually encode
@@ -58,10 +63,13 @@ private:
 
 	void message_io(PacketCodec& p, Message& m, CompressionType& compression);
 
-	std::deque<Message> messages_;
-	int32_t				max_message_size_;
-	CompressionType  	compression_;
-	size_t				encoded_size_;
+	std::deque<Message> 	messages_;
+	int32_t					max_message_size_;
+	CompressionType  		compression_;
+	size_t					encoded_size_;
+
+	// Any strings we need to keep around to keep slices valid
+	std::list<buffer_t>		owned_buffers_;
 };
 
 void kafka_proto_io(PacketCodec& p, MessageSet::Message& m);

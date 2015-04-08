@@ -18,6 +18,9 @@ ProducerClient::ProducerClient(const std::string& brokers, int num_io_threads)
 	,brokers_()
 	,partition_map_()
 	,mu_()
+	,meta_fetch_mu_()
+	,last_meta_fetch_()
+	,last_meta_error_()
 	,produce_timeout_(10000)
 	,produce_timeout_rtt_allowance_(500)
 	,connect_timeout_(1000)
@@ -28,7 +31,6 @@ ProducerClient::ProducerClient(const std::string& brokers, int num_io_threads)
 	,asio_threads_(num_io_threads)
 	,stopping_(false)
 	,client_id_("synkafka_client")
-	,last_meta_error_()
 {
 	broker_configs_ = string_to_brokers(brokers);
 
@@ -73,7 +75,7 @@ void ProducerClient::set_produce_timeout_rtt_allowance(int32_t milliseconds)
 	produce_timeout_rtt_allowance_ = milliseconds;
 }
 
-void ProducerClient::set_required_acks(int32_t acks)
+void ProducerClient::set_required_acks(int16_t acks)
 {
 	required_acks_ = acks;
 }
@@ -113,11 +115,84 @@ std::error_code ProducerClient::check_topic_partition_leader_available(const sli
 
 std::error_code ProducerClient::produce(const slice& topic, int32_t partition_id, MessageSet& messages)
 {
-	std::lock_guard<std::mutex> lg(mu_);
-
-	if (stopping_) {
+	if (stopping_.load()) {
 		return make_error_code(synkafka_error::client_stopping);
 	}
+
+	Partition p{topic, partition_id};
+
+	auto broker = get_broker_for_partition(p);
+
+	if (broker == nullptr) {
+		if (last_meta_error_) {
+			return last_meta_error_;
+		}
+		return make_error_code(kafka_error::UnknownTopicOrPartition);
+	}
+
+	// We got a broker! Try to connect (returns immediately if allready connected)
+	broker->set_connect_timeout(connect_timeout_);
+	auto ec = broker->connect();
+
+	if (ec) {
+		close_broker(std::move(broker));
+		return ec;
+	}
+
+	// We have a connected broker that is (at least last time we checked) leader
+	// for the partition. Send it batch!
+	proto::ProduceRequest rq{required_acks_
+    						,produce_timeout_
+    						,{proto::ProduceTopic{topic.str()
+    											 ,{proto::ProducePartition{partition_id
+    											 						  ,messages
+    											 						  }
+    											  }
+    											 }
+    						 }
+    						};
+
+
+    proto::ProduceResponse resp;
+
+	ec = broker->sync_call(rq, resp, produce_timeout_ + produce_timeout_rtt_allowance_);
+
+    if (ec) {
+    	// All call error cases are client or network failures. Wipe out connection and hope
+    	// we can do better next time.
+    	close_broker(std::move(broker));
+    	return ec;
+    }
+
+    // OK got a response, see if it is kafka-protocol error!
+    // We only ever produce one partition/topic at a time which makes this simpler.
+    // In fact that is the whole point of this library - no partial failures
+    if (!ec) {
+    	if (resp.topics.size() != 1 || resp.topics[0].partitions.size() != 1) {
+    		// Probably not possible?
+    		ec = make_error_code(synkafka_error::unknown);
+    	} else {
+    		ec = resp.topics[0].partitions[0].err_code;
+    	}
+    } 
+
+   	if (ec) {
+   		// All Kafka errors here are either transient or related to incorrect metadata
+   		// or bad messages. There is really no need to close broker.
+
+   		if (ec == kafka_error::NotLeaderForPartition) {
+   			// Reload metadata, we were clearly out of date.
+   			// TODO: For now still return the error to client - they can however retry
+   			// and it *should* work since we reloaded. If we retied ourselves, we'd
+   			// need to keep track of how many times just in case we got stuck in some
+   			// leader election loop of hell, we'd also need to verify that refreshing meta
+   			// actually worked otherwise we could be stuck in loop. For now just let client
+   			// figure that out depending on what makes sense for them. We might need to expose
+   			// meta refresh failures in that case?
+   			refresh_meta();
+   		}
+   		return ec;
+   	}
 
 	return make_error_code(synkafka_error::no_error);
 }
@@ -186,6 +261,21 @@ void ProducerClient::close_broker(boost::shared_ptr<Broker> broker)
 
 void ProducerClient::refresh_meta(int attempts)
 {
+	// Get current time that we requested new meta (BEFORE lock)
+	auto requested_at = std::chrono::system_clock::now();
+
+	// Now aquire mutex to ensure we are the only thread fetching meta
+	// (if we are not only thread then we will block here until other thread returns)
+	std::unique_lock<std::mutex> meta_lock(meta_fetch_mu_);
+
+	// We got the lock, double check if someone else completed refresh since we started aquire
+	if (last_meta_fetch_ >= requested_at) {
+		// Some other thread completed a meta fetch while we were waiting on lock. No need to
+		// do it ourselves.
+		log->debug("ProducerClient thread was waiting on meta update that happened elsewhere");
+		return;
+	}
+
 	// Fetch meta data from one connected broker. If there are none, bootstrap from the initial config list
 	boost::shared_ptr<Broker> broker;
 
@@ -231,65 +321,12 @@ void ProducerClient::refresh_meta(int attempts)
 	proto::TopicMetadataRequest req;
 	proto::MetadataResponse resp;
 
-	std::error_code ec;
-
-	// Requests are tiny 32 bytes is enough for now
-	auto enc = std::make_shared<PacketEncoder>(32);
-	enc->io(req);
-
-	if (!enc->ok()) {
-		log->error("Failed to encode Metadata request: ") << enc->err_str();
-		ec = make_error_code(synkafka_error::encoding_error);
-		return;
-	}
-
-    auto decoder_future = broker->call(ApiKey::MetadataRequest, std::move(enc));
-
-    // Re-use connect timeout for meta data since meta fetch is really only an implementation specific step in getting connected to
+	// Re-use connect timeout for meta data since meta fetch is really only an implementation specific step in getting connected to
     // correct node. This is docuemented in the public API in header file.
-    auto status = decoder_future.wait_for(std::chrono::milliseconds(connect_timeout_));
-
-    if (status != std::future_status::ready) {
-		log->error("Failed to get Metadata: connection timedout, broker: ")
-			<< broker->get_config().host << ":" << broker->get_config().port;
-		ec = make_error_code(synkafka_error::network_timeout);
-    } else {
-
-	    // OK we got a result, decode it into our meta data
-	    try 
-	    {
-	    	auto decoder = decoder_future.get();
-		    decoder.io(resp);
-
-			if (!decoder.ok()) {
-				log->error("Failed to get Metadata: decoder error: ") << decoder.err_str();
-				ec = make_error_code(synkafka_error::decoding_error);
-			}
-	    }
-	    catch (const std::error_code& errc)
-	    {
-	    	log->error("Failed to get Metadata: ") << errc.message();
-	    	ec = errc;
-	    }
-	    catch (const std::future_error& e)
-	    {
-	    	log->error("Failed to get Metadata: future err: ") << e.code().message();
-	    	ec = e.code();
-	    }
-	    catch (const std::exception& e)
-	    {
-	    	log->error("Failed to get Metadata: unexpected exception: ") << e.what();
-	    	ec = make_error_code(synkafka_error::unknown);
-	    }
-	    catch (...)
-	    {
-	    	log->error("Failed to get Metadata: unknown exception");
-	    	ec = make_error_code(synkafka_error::unknown);
-	    }
-    }
+	std::error_code ec = broker->sync_call(req, resp, connect_timeout_);
 
     if (ec) {
-    	// Close and reset broker that timed out
+    	// Close and reset broker that failed
     	close_broker(std::move(broker));
 
     	{
@@ -298,6 +335,7 @@ void ProducerClient::refresh_meta(int attempts)
     	}
 
 		if (attempts < retry_attempts_) {
+			meta_lock.unlock();
 			return refresh_meta(attempts + 1);
 		}
 		log->error("Failed to get Metadata after ") << attempts + 1 << " attempts";
@@ -363,6 +401,7 @@ void ProducerClient::refresh_meta(int attempts)
 	}
 
 	log->debug("Updated Cluster Meta:\n") << debug_dump_meta();
+	last_meta_fetch_ = std::chrono::system_clock::now();
 }
 
 void ProducerClient::close()

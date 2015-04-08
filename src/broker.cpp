@@ -217,7 +217,9 @@ void Broker::response_handler_actor(const error_code& ec, size_t n)
 
 			// Check correlationid is actually correct
 			if (req->header.correlation_id != h.correlation_id) {
-				log->debug("response_handler_actor correlation_id mismatch expected: ") << req->header.correlation_id << " Got: " << h.correlation_id;
+				log->debug("response_handler_actor correlation_id mismatch expected: ") 
+					<< req->header.correlation_id << " Got: " << h.correlation_id
+					<< " response length is " << response_len << " read " << n;
 				req->response_promise.set_exception(std::make_exception_ptr(std::runtime_error("Correlation ID mismatch")));
 				close();
 				return;

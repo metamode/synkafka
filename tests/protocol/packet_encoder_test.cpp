@@ -28,28 +28,44 @@ TEST(Protocol, PacketEncoderPrimatives)
 	int8_t i8 = 12;
 	pe.io(i8);
 
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
+
 	int16_t i16 = 3021;
 	pe.io(i16);
+
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
 
 	int32_t i32 = 987654321;
 	pe.io(i32);
 
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
+
 	int64_t i64 = 123456789132465789;
 	pe.io(i64);
 
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
+
 	std::string str("Hello World");
 	pe.io(str);
+
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
 	pe.io_bytes(str, COMP_None);
+
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
 
 	// Empty string should encode as null (length -1)
 	std::string null_str("");
 	pe.io(null_str);
+
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
 	pe.io_bytes(null_str, COMP_None);
+
+	std::cout << "\t" << pe.get_as_slice(true).hex() << " - " << pe.get_cursor() << std::endl;
 
 	ASSERT_TRUE(pe.ok());
 
 	auto encoded = pe.get_as_slice(true);
-	ASSERT_EQ(expected.size(), encoded.size());
+	EXPECT_EQ(expected.size(), encoded.size());
 	ASSERT_EQ(0, expected.compare(encoded))
 		<< "Expected: <" << expected.hex() << "> ("<< expected.size() << ")\n"
 		<< "Got:      <" << encoded.hex() << "> ("<< encoded.size() << ")";

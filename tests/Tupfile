@@ -1,6 +1,6 @@
 include_rules
 
-CFLAGS += -I../vendor/gtest/include -I../vendor/gtest -I../src
+CFLAGS += -I../vendor/gtest/include -I../vendor/gtest -I../vendor/spdlog/include -I../src
 
 : foreach ../vendor/gtest/src/*.cc |> !cc |> {gtest_o}
 : {gtest_o} |> ar rcs %o %f |> libgtest.a

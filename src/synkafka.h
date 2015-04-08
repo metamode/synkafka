@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <string>
 #include <system_error>
@@ -65,7 +66,7 @@ public:
 
 	// How many replicas must ack each produce request. See Kafka docs for more info.
 	// Default is -1 (wait for all in sync replicas to ack)
-	void set_required_acks(int32_t acks);
+	void set_required_acks(int16_t acks);
 
 	// Sent to kafka with each request see 
 	// https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-Requests
@@ -135,10 +136,17 @@ private:
 	std::map<int32_t, BrokerContainer>				brokers_;
 	std::map<Partition, int32_t>					partition_map_;
 	std::mutex										mu_; // protects all internal state - any state reads should be synchronized
+
+	// If multiple threads waiting on meta data ensure only one connects
+	// and others wait for it
+	std::mutex										meta_fetch_mu_;
+	std::chrono::time_point<std::chrono::system_clock>	last_meta_fetch_;
+	std::error_code 								last_meta_error_;
+
 	int32_t 										produce_timeout_;
 	int32_t 										produce_timeout_rtt_allowance_;
 	int32_t 										connect_timeout_;
-	int32_t 										required_acks_;
+	int16_t 										required_acks_;
 	int32_t 										retry_attempts_;
 
 	boost::asio::io_service							io_service_;
@@ -147,7 +155,6 @@ private:
 	std::atomic<bool>								stopping_;
 
 	std::string 									client_id_;
-	std::error_code 								last_meta_error_;
 };
 
 }

@@ -205,7 +205,10 @@ TEST(Protocol, MessageSetCodec)
 	MessageSet ms;
 	add_messages(ms);
 
-	PacketEncoder pe(1024);
+	// Intentionall too small for message set to test buffer expansion happens correctly
+	// note that this is long enough that one of the crc fields from message is written before
+	// it expands
+	PacketEncoder pe(30);
 
 	pe.io(ms);
 	ASSERT_TRUE(pe.ok()) << pe.err_str();

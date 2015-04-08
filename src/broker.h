@@ -13,6 +13,7 @@
 
 #include "connection.h"
 #include "protocol.h"
+#include "log.h"
 
 using boost::asio::ip::tcp;
 using boost::system::error_code;
@@ -32,57 +33,59 @@ public:
 
 	std::future<PacketDecoder> call(int16_t api_key, std::shared_ptr<PacketEncoder> request_packet);
 
-	/*template<typename RequestType, typename ResponseType>
-	std::future<ResponseType> call(RequestType&& request)
+	template<typename RequestType, typename ResponseType>
+	std::error_code sync_call(RequestType& request, ResponseType& resp, int32_t timeout_ms)
 	{
-		// make shared request ptr
+		auto enc = std::make_shared<PacketEncoder>(512);
+		enc->io(request);
 
-		// Get future from promise
+		if (!enc->ok()) {
+			log->error("Failed to encode request: ") << enc->err_str();
+			return make_error_code(synkafka_error::encoding_error);
+		}
 
-		// dispatch to send() on strand with req ptr as first param
+	    auto decoder_future = call(RequestType::api_key, std::move(enc));
 
-		// return future
+	    auto status = decoder_future.wait_for(std::chrono::milliseconds(timeout_ms));
+
+	    if (status != std::future_status::ready) {
+			return make_error_code(synkafka_error::network_timeout);
+	    } else {
+		    // OK we got a result, decode it
+		    try 
+		    {
+		    	auto decoder = decoder_future.get();
+			    decoder.io(resp);
+
+				if (!decoder.ok()) {
+					log->error("Failed to decoder packet: ") << decoder.err_str();
+					return make_error_code(synkafka_error::decoding_error);
+				}
+		    }
+		    catch (const std::error_code& errc)
+		    {
+		    	log->error("Failed sync_call with error_code: ") << errc.message();
+		    	return errc;
+		    }
+		    catch (const std::future_error& e)
+		    {
+		    	log->error("Failed sync_call with future_error: ") << e.code().message();
+		    	return e.code();
+		    }
+		    catch (const std::exception& e)
+		    {
+		    	log->error("Failed sync_call with exception: ") << e.what();
+		    	return make_error_code(synkafka_error::unknown);
+		    }
+		    catch (...)
+		    {
+		    	log->error("Failed sync_call with unknown exception");
+		    	return make_error_code(synkafka_error::unknown);
+		    }
+	    }
+
+	    return make_error_code(synkafka_error::no_error);
 	}
-
-	template<typename RequestType, typename ResponseType>
-	struct RPCRequest
-	{
-		int32_t 					seq;
-		RequestType 				req;
-		std::promise<ResponseType> 	resp;
-		buffer_t 					read_buffer; // start at some size that will be enough for mos responses maybe 1k?
-		size_t 						response_len;
-		size_t						recvd_len;
-	};
-
-	template<typename RequestType, typename ResponseType>
-	void send(std::shared_ptr<RPCRequest<RequestType, ResponseType>>req)
-	{
-		// On strand now, assign next seqence number to request
-		// And encode the packet
-		// call async write if OK -> handle_send
-	}	
-
-	template<typename RequestType, typename ResponseType>
-	void handle_send(std::shared_ptr<RPCRequest<RequestType, ResponseType>> req, const error_code& ec, size_t n)
-	{
-		// if error, abort promise
-		// if OK async read -> handle_response
-	}
-
-	template<typename RequestType, typename ResponseType>
-	void handle_response(std::shared_ptr<RPCRequest<RequestType, ResponseType>> req, const error_code& ec, size_t n)
-	{
-		// if error, abort promise
-		// if req->response_len == 0 this is intial read
-			// try decode header or fail
-		    // set req->response_len = decoded_len, req->recvd_len = n
-		    // if n = decoded response length + sizeof(int32_t), we have whole thing, decode it 
-		    // else figure out how much more there is to read, resize buffer to right size (+ lenth prefix)
-		    //   and read async -> handle_response
-		// else, decode full buffer into ResponseType struct
-		// fullfil promise or fail it 
-	}*/
 
 
 	void close();

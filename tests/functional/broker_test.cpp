@@ -125,20 +125,11 @@ TEST_F(BrokerTest, MetadataRequest)
 
     proto::TopicMetadataRequest rq;
     proto::MetadataResponse resp;
-    auto enc = std::make_shared<PacketEncoder>(128);
-    enc->io(rq);
 
-    auto decoder_future = b->call(ApiKey::MetadataRequest, std::move(enc));
-
-    auto status = decoder_future.wait_for(std::chrono::seconds(1));
-
-    ASSERT_NE(std::future_status::timeout, status);
-
-    auto decoder = decoder_future.get();
-    decoder.io(resp);
-
-    EXPECT_TRUE(decoder.ok());
-
+    err = b->sync_call(rq, resp, 1000);
+    ASSERT_FALSE(err)
+        << "Request failed: " << err.message();
+    
     auto broker_num = get_env_int("KAFKA_BROKER_NUM");
 
     EXPECT_EQ(broker_num, resp.brokers.size());
@@ -186,7 +177,8 @@ void test_connect_and_send_message_set(boost::asio::io_service& io_service
 									  ,MessageSet& ms
 									  ,int32_t partition_id
 									  ,const char* test_name
-									  ,proto::ProduceResponse* resp
+                                      ,std::error_code expected_err
+                                      ,int num_batches_in_pipeline = 1
 									  )
 {
 	boost::shared_ptr<Broker> b(new Broker(io_service, broker.host, broker.port, "test"));
@@ -194,36 +186,49 @@ void test_connect_and_send_message_set(boost::asio::io_service& io_service
     auto err = b->connect();
     ASSERT_FALSE(err);
 
-    proto::ProduceRequest rq{1
-    						,500
-    						,{proto::ProduceTopic{"test"
-    											 ,{proto::ProducePartition{partition_id
-    											 						  ,ms
-    											 						  }
-    											  }
-    											 }
-    						 }
-    						};
+    std::vector<std::future<PacketDecoder>> futures;
 
-    auto enc = std::make_shared<PacketEncoder>(1024);
-    enc->io(rq);
+    for (int i = 0; i < num_batches_in_pipeline; ++i) {
+        proto::ProduceRequest rq{1
+                                ,500
+                                ,{proto::ProduceTopic{"test"
+                                                     ,{proto::ProducePartition{partition_id
+                                                                              ,ms
+                                                                              }
+                                                      }
+                                                     }
+                                 }
+                                };
 
-    EXPECT_TRUE(enc->ok()) << test_name << "Encoder error: " << enc->err_str();
+    
+        auto enc = std::make_shared<PacketEncoder>(512);
+        enc->io(rq);
+        ASSERT_TRUE(enc->ok());
 
-    auto decoder_future = b->call(ApiKey::ProduceRequest, std::move(enc));
+        futures.push_back(std::move(b->call(proto::ProduceRequest::api_key, std::move(enc))));
+    }
 
-    auto status = decoder_future.wait_for(std::chrono::seconds(1));
+    int i = 0;
+    for (auto& fu : futures) {
 
-    ASSERT_EQ(std::future_status::ready, status);
+        auto status = fu.wait_for(std::chrono::milliseconds(1000));
 
-    auto decoder = decoder_future.get();
-    decoder.io(*resp);
+        ASSERT_EQ(std::future_status::ready, status);
 
-    EXPECT_TRUE(decoder.ok());		    
-    EXPECT_EQ(1, 					resp->topics.size());
-	EXPECT_EQ("test", 				resp->topics[0].name);
-	EXPECT_EQ(1, 					resp->topics[0].partitions.size());
-	EXPECT_EQ(0, 					resp->topics[0].partitions[0].partition_id);
+        auto decoder = fu.get();
+
+        proto::ProduceResponse resp;
+
+        decoder.io(resp);
+
+        ASSERT_TRUE(decoder.ok());
+
+        EXPECT_EQ(1,                    resp.topics.size());
+        EXPECT_EQ("test",               resp.topics[0].name);
+        EXPECT_EQ(1,                    resp.topics[0].partitions.size());
+        EXPECT_EQ(0,                    resp.topics[0].partitions[0].partition_id);
+        EXPECT_EQ(expected_err,         resp.topics[0].partitions[0].err_code);
+    }
 }
 
 
@@ -238,21 +243,10 @@ TEST_F(BrokerTest, SimpleProduce)
 
     proto::TopicMetadataRequest rq;
     proto::MetadataResponse resp;
-    auto enc = std::make_shared<PacketEncoder>(128);
-    enc->io(rq);
 
-    auto decoder_future = b->call(ApiKey::MetadataRequest, std::move(enc));
-
-    auto status = decoder_future.wait_for(std::chrono::seconds(1));
-
-    ASSERT_EQ(std::future_status::ready, status);
-
-	// Find broker for partition 0 and produce to it
-	// (we rely on there being correct partitions as tested in meta test etc)
-	auto decoder = decoder_future.get();
-    decoder.io(resp);
-
-    EXPECT_TRUE(decoder.ok());
+    err = b->sync_call(rq, resp, 1000);
+    ASSERT_FALSE(err)
+        << "Request failed: " << err.message();
 
 	proto::Broker* test_0_leader = nullptr;
     proto::Broker* test_0_not_leader = nullptr;
@@ -302,41 +296,39 @@ TEST_F(BrokerTest, SimpleProduce)
 	ms.push("Hello World. This is a Message produced by Synkafka. 4.", "");
 
     {
-    	proto::ProduceResponse resp;
-    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "uncompressed", &resp);
-        EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
+    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "uncompressed", kafka_error::NoError);
     }
 
     // Test publish to non-leader gets expected error
     {
-        proto::ProduceResponse resp;
-        test_connect_and_send_message_set(io_service_, *test_0_not_leader, ms, 0, "uncompressed, non-leader broker", &resp);
-        EXPECT_EQ(kafka_error::NotLeaderForPartition, resp.topics[0].partitions[0].err_code);
+        test_connect_and_send_message_set(io_service_, *test_0_not_leader, ms, 0, "uncompressed, non-leader broker", kafka_error::NotLeaderForPartition);
     }
 
 	// Test publish to non-replica gets expected error
 	{
-        proto::ProduceResponse resp;
-    	test_connect_and_send_message_set(io_service_, *test_0_not_replica, ms, 0, "uncompressed, non-replica broker", &resp);
-        EXPECT_EQ(kafka_error::UnknownTopicOrPartition, resp.topics[0].partitions[0].err_code);
+    	test_connect_and_send_message_set(io_service_, *test_0_not_replica, ms, 0, "uncompressed, non-replica broker", kafka_error::UnknownTopicOrPartition);
     }
 
 	// Test publish with GZIP
     {
     	ms.push("Hello World. This is extra message for GZIP batch", "");
     	ms.set_compression(COMP_GZIP);
-    	proto::ProduceResponse resp;
-    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "GZIP", &resp);
-        EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
+    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "GZIP", kafka_error::NoError);
     }
 
 	//And Snappy
     {
     	ms.push("Hello World. This is extra message for Snappy batch", "");
     	ms.set_compression(COMP_Snappy);
-    	proto::ProduceResponse resp;
-    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "Snappy", &resp);
-        EXPECT_EQ(kafka_error::NoError, resp.topics[0].partitions[0].err_code);
+    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "Snappy", kafka_error::NoError);
+    }
+
+    // Test pipelingin multiple sends on a single broker connection works
+    {
+
+        ms.push("Hello World. This is extra message for Pipelined batch", "");
+        ms.set_compression(COMP_None);
+        test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "Pipelined", kafka_error::NoError, 3);
     }
 
 	// All of the above can be verified it's really doing what is expected manually via:
