@@ -14,6 +14,7 @@
 #include "connection.h"
 #include "packet.h"
 #include "protocol.h"
+#include "log.h"
 
 #include "test_cluster.h"
 
@@ -53,9 +54,143 @@ protected:
         asio_thread_.join();
     }
 
+    void SetUpProduce()
+    {
+        // First we need to get meta data to find out which broker to produce to
+        boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
+
+        auto err = b->connect();
+        ASSERT_FALSE(err);
+
+        proto::TopicMetadataRequest rq;
+
+        err = b->sync_call(rq, meta_, 1000);
+        ASSERT_FALSE(err)
+            << "Request failed: " << err.message();
+
+        test_0_leader_ = nullptr;
+        test_0_not_leader_ = nullptr;
+        test_0_not_replica_ = nullptr;
+
+        EXPECT_LT(0, meta_.brokers.size());
+        EXPECT_LT(0, meta_.topics.size());
+
+        for (auto& topic : meta_.topics) {
+            if (topic.name == "test") {
+                for (auto& partition : topic.partitions) {
+                    if (partition.partition_id == 0) {
+                        // Get leader
+                        for (auto& broker : meta_.brokers) {
+                            if (broker.node_id == partition.leader) {
+                                test_0_leader_ = &broker;
+                            } else {
+                                bool is_replica = (std::find(partition.replicas.begin()
+                                                            ,partition.replicas.end()
+                                                            ,broker.node_id
+                                                            ) != partition.replicas.end());
+
+                                if (test_0_not_leader_ == nullptr && is_replica) {
+                                    test_0_not_leader_ = &broker;
+                                }
+                                if (test_0_not_replica_ == nullptr && !is_replica) {
+                                    test_0_not_replica_ = &broker;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            break;
+            }
+        }
+
+        ASSERT_NE(nullptr, test_0_leader_);
+        ASSERT_NE(nullptr, test_0_not_leader_);
+        ASSERT_NE(nullptr, test_0_not_replica_);
+
+        ms_.reset(new MessageSet());
+        ms_->push("Hello World. This is a Message produced by Synkafka. 1.", "");
+        ms_->push("Hello World. This is a Message produced by Synkafka. 2.", "");
+        ms_->push("Hello World. This is a Message produced by Synkafka. 3.", "");
+        ms_->push("Hello World. This is a Message produced by Synkafka. 4.", "");
+    }
+
+    void test_connect_and_send_message_set(proto::Broker& broker
+                                          ,int32_t partition_id
+                                          ,std::error_code expected_err
+                                          ,int num_batches_in_pipeline = 1
+                                          )
+    {
+        boost::shared_ptr<Broker> b(new Broker(io_service_, broker.host, broker.port, "test"));
+
+        auto err = b->connect();
+        ASSERT_FALSE(err);
+
+        std::vector<std::future<PacketDecoder>> futures;
+
+
+        for (int i = 0; i < num_batches_in_pipeline; ++i) {
+            proto::ProduceRequest rq{1
+                                    ,500
+                                    ,{proto::ProduceTopic{"test"
+                                                         ,{proto::ProducePartition{partition_id
+                                                                                  ,*ms_
+                                                                                  }
+                                                          }
+                                                         }
+                                     }
+                                    };
+
+        
+            auto enc = std::unique_ptr<PacketEncoder>(new PacketEncoder(512));
+            enc->io(rq);
+            ASSERT_TRUE(enc->ok());
+
+            futures.push_back(std::move(b->call(proto::ProduceRequest::api_key, std::move(enc))));
+        }
+
+        // Wait just one timeout for all to be produced
+        auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(1000);
+
+        int i = 1;
+        for (auto& fu : futures) {
+
+            auto status = fu.wait_until(deadline);
+
+            ASSERT_EQ(std::future_status::ready, status)
+                << "Timed out reading response to produce batch " << i << " of " << num_batches_in_pipeline;
+
+            auto decoder = fu.get();
+
+            log()->debug() << "decoder cursor before resp read: " << decoder.get_cursor() << " for batch " << i;
+
+            proto::ProduceResponse resp;
+
+            decoder.io(resp);
+
+            log()->debug() << "decoder cursor after resp read: " << decoder.get_cursor() << " for batch " << i;
+
+            ASSERT_TRUE(decoder.ok()) << decoder.err_str();
+
+            EXPECT_EQ(1,                    resp.topics.size()) << " for batch " << i;
+            EXPECT_EQ("test",               resp.topics[0].name) << " for batch " << i;
+            EXPECT_EQ(1,                    resp.topics[0].partitions.size()) << " for batch " << i;
+            EXPECT_EQ(0,                    resp.topics[0].partitions[0].partition_id) << " for batch " << i;
+            EXPECT_EQ(expected_err,         resp.topics[0].partitions[0].err_code) << " for batch " << i;
+            ++i;
+        }
+    }
+
     boost::asio::io_service                         io_service_;
     std::auto_ptr<boost::asio::io_service::work>    work_;
     std::thread                                     asio_thread_;
+
+    proto::MetadataResponse                         meta_;
+    proto::Broker*                                  test_0_leader_;
+    proto::Broker*                                  test_0_not_leader_;
+    proto::Broker*                                  test_0_not_replica_;
+
+    std::unique_ptr<MessageSet>                     ms_;
 };
 
 
@@ -172,172 +307,59 @@ TEST_F(BrokerTest, MetadataRequest)
     EXPECT_EQ(2, resp.topics[0].partitions[0].isr.size());
 }
 
-void test_connect_and_send_message_set(boost::asio::io_service& io_service
-									  ,proto::Broker& broker
-									  ,MessageSet& ms
-									  ,int32_t partition_id
-									  ,const char* test_name
-                                      ,std::error_code expected_err
-                                      ,int num_batches_in_pipeline = 1
-									  )
+
+TEST_F(BrokerTest, ProduceBatchUncompressed)
 {
-	boost::shared_ptr<Broker> b(new Broker(io_service, broker.host, broker.port, "test"));
-
-    auto err = b->connect();
-    ASSERT_FALSE(err);
-
-    std::vector<std::future<PacketDecoder>> futures;
-
-    for (int i = 0; i < num_batches_in_pipeline; ++i) {
-        proto::ProduceRequest rq{1
-                                ,500
-                                ,{proto::ProduceTopic{"test"
-                                                     ,{proto::ProducePartition{partition_id
-                                                                              ,ms
-                                                                              }
-                                                      }
-                                                     }
-                                 }
-                                };
-
-    
-        auto enc = std::make_shared<PacketEncoder>(512);
-        enc->io(rq);
-        ASSERT_TRUE(enc->ok());
-
-        futures.push_back(std::move(b->call(proto::ProduceRequest::api_key, std::move(enc))));
-    }
-
-    int i = 0;
-    for (auto& fu : futures) {
-
-        auto status = fu.wait_for(std::chrono::milliseconds(1000));
-
-        ASSERT_EQ(std::future_status::ready, status);
-
-        auto decoder = fu.get();
-
-        proto::ProduceResponse resp;
-
-        decoder.io(resp);
-
-        ASSERT_TRUE(decoder.ok());
-
-        EXPECT_EQ(1,                    resp.topics.size());
-        EXPECT_EQ("test",               resp.topics[0].name);
-        EXPECT_EQ(1,                    resp.topics[0].partitions.size());
-        EXPECT_EQ(0,                    resp.topics[0].partitions[0].partition_id);
-        EXPECT_EQ(expected_err,         resp.topics[0].partitions[0].err_code);
-    }
+    ASSERT_NO_FATAL_FAILURE(SetUpProduce());
+    test_connect_and_send_message_set(*test_0_leader_,0, kafka_error::NoError);
 }
 
-
-TEST_F(BrokerTest, SimpleProduce)
+TEST_F(BrokerTest, ProduceBatchNonLeader)
 {
-    // First we need to get meta data to find out which broker to produce to
-    boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
-    //boost::shared_ptr<Broker> b(new Broker(io_service, "localhost", 9000, "test"));
-
-    auto err = b->connect();
-    ASSERT_FALSE(err);
-
-    proto::TopicMetadataRequest rq;
-    proto::MetadataResponse resp;
-
-    err = b->sync_call(rq, resp, 1000);
-    ASSERT_FALSE(err)
-        << "Request failed: " << err.message();
-
-	proto::Broker* test_0_leader = nullptr;
-    proto::Broker* test_0_not_leader = nullptr;
-	proto::Broker* test_0_not_replica = nullptr;
-
-	EXPECT_LT(0, resp.brokers.size());
-	EXPECT_LT(0, resp.topics.size());
-
-	for (auto& topic : resp.topics) {
-		if (topic.name == "test") {
-			for (auto& partition : topic.partitions) {
-				if (partition.partition_id == 0) {
-					// Get leader
-					for (auto& broker : resp.brokers) {
-						if (broker.node_id == partition.leader) {
-							test_0_leader = &broker;
-						} else {
-                            bool is_replica = (std::find(partition.replicas.begin()
-                                                        ,partition.replicas.end()
-                                                        ,broker.node_id
-                                                        ) != partition.replicas.end());
-
-                            if (test_0_not_leader == nullptr && is_replica) {
-                                test_0_not_leader = &broker;
-                            }
-                            if (test_0_not_replica == nullptr && !is_replica) {
-                                test_0_not_replica = &broker;
-                            }
-                        }
-					}
-					break;
-				}
-			}
-		break;
-		}
-	}
-
-	ASSERT_NE(nullptr, test_0_leader);
-    ASSERT_NE(nullptr, test_0_not_leader);
-	ASSERT_NE(nullptr, test_0_not_replica);
-
-	MessageSet ms;
-
-	ms.push("Hello World. This is a Message produced by Synkafka. 1.", "");
-	ms.push("Hello World. This is a Message produced by Synkafka. 2.", "");
-	ms.push("Hello World. This is a Message produced by Synkafka. 3.", "");
-	ms.push("Hello World. This is a Message produced by Synkafka. 4.", "");
-
-    {
-    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "uncompressed", kafka_error::NoError);
-    }
-
-    // Test publish to non-leader gets expected error
-    {
-        test_connect_and_send_message_set(io_service_, *test_0_not_leader, ms, 0, "uncompressed, non-leader broker", kafka_error::NotLeaderForPartition);
-    }
-
-	// Test publish to non-replica gets expected error
-	{
-    	test_connect_and_send_message_set(io_service_, *test_0_not_replica, ms, 0, "uncompressed, non-replica broker", kafka_error::UnknownTopicOrPartition);
-    }
-
-	// Test publish with GZIP
-    {
-    	ms.push("Hello World. This is extra message for GZIP batch", "");
-    	ms.set_compression(COMP_GZIP);
-    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "GZIP", kafka_error::NoError);
-    }
-
-	//And Snappy
-    {
-    	ms.push("Hello World. This is extra message for Snappy batch", "");
-    	ms.set_compression(COMP_Snappy);
-    	test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "Snappy", kafka_error::NoError);
-    }
-
-    // Test pipelingin multiple sends on a single broker connection works
-    {
-
-        ms.push("Hello World. This is extra message for Pipelined batch", "");
-        ms.set_compression(COMP_None);
-        test_connect_and_send_message_set(io_service_, *test_0_leader, ms, 0, "Pipelined", kafka_error::NoError, 3);
-    }
-
-	// All of the above can be verified it's really doing what is expected manually via:
-	//  1. check the test run output when DEBUG logs are on and see that first two sends result in something like
-	//       handle_write sent OK (370 bytes written)
-	//     while GZIP and snappy send fewer bytes:
-	//       handle_write sent OK (227 bytes written)
-	//       handle_write sent OK (259 bytes written)
-	//  2. Verify using `./kafka-simple-consumer-shell.sh --broker-list=192.168.59.103:9092 --topic test --partition 0`
-	//     that the messages are readable and sent as expected. They also decode compressed ones transparently (hence differnt messages in those) 
+    ASSERT_NO_FATAL_FAILURE(SetUpProduce());
+    test_connect_and_send_message_set(*test_0_not_leader_, 0, kafka_error::NotLeaderForPartition);
 }
+
+TEST_F(BrokerTest, ProduceBatchNonReplica)
+{
+    ASSERT_NO_FATAL_FAILURE(SetUpProduce());
+	test_connect_and_send_message_set(*test_0_not_replica_, 0, kafka_error::UnknownTopicOrPartition);
+}
+
+TEST_F(BrokerTest, ProduceBatchGZIP)
+{
+    ASSERT_NO_FATAL_FAILURE(SetUpProduce());
+	ms_->push("Hello World. This is extra message for GZIP batch", "");
+	ms_->set_compression(COMP_GZIP);
+	test_connect_and_send_message_set(*test_0_leader_, 0, kafka_error::NoError);
+}
+
+TEST_F(BrokerTest, ProduceBatchSnappy)
+{
+    ASSERT_NO_FATAL_FAILURE(SetUpProduce());
+	ms_->push("Hello World. This is extra message for Snappy batch", "");
+	ms_->set_compression(COMP_Snappy);
+	test_connect_and_send_message_set(*test_0_leader_, 0, kafka_error::NoError);
+}
+
+TEST_F(BrokerTest, ProduceBatchPipelined)
+{
+    ASSERT_NO_FATAL_FAILURE(SetUpProduce());
+    ms_->push("Hello World. This is extra message for Pipelined batch", "");
+    ms_->set_compression(COMP_None);
+    test_connect_and_send_message_set(*test_0_leader_, 0, kafka_error::NoError, 3);
+}
+
+// All of the above can be verified it's really doing what is expected manually via:
+//  1. check the test run output when DEBUG logs are on and see that first two sends result in something like
+//       handle_write sent OK (370 bytes written)
+//     while GZIP and snappy send fewer bytes:
+//       handle_write sent OK (227 bytes written)
+//       handle_write sent OK (259 bytes written)
+//  2. Verify using `./kafka-simple-consumer-shell.sh --broker-list=192.168.59.103:9092 --topic test --partition 0`
+//     that the messages are readable and sent as expected. They also decode compressed ones transparently (hence differnt messages in those)
+// Note that the end-to-end integration tests in producer_client_test.cpp automate some of that too.
+// these producing tests are mostly useful for pinpointing specific issues in simpler case than when testing the whole
+// client too.
+
 

@@ -1,9 +1,13 @@
 #include <stdexcept>
 
+#include <cassert>
 #include <boost/bind.hpp>
 
 #include "protocol.h"
 #include "rpc.h"
+
+#define DBG_LOG() \
+	log()->debug() << pimpl_->conn_ << queue_type() << " RPC[" << rpc->get_seq() << "] "
 
 using boost::asio::ip::tcp;
 using boost::system::error_code;
@@ -11,22 +15,35 @@ using boost::system::error_code;
 namespace synkafka
 {
 
-
-RPC::RPC(int16_t api_key, std::shared_ptr<PacketEncoder> encoder, const std::string& client_id)
-	:header_({api_key, KafkaApiVersion, 0, client_id})
+RPC::RPC(int16_t api_key, std::unique_ptr<PacketEncoder> encoder, const slice& client_id)
+	:seq_(0)
+	,api_key_(api_key)
+	,client_id_(client_id)
+	,header_encoder_(nullptr)
 	,encoder_(std::move(encoder))
-	,response_buffer_(new buffer_t(128))
+	,response_buffer_(new buffer_t(1024))
+	,decoder_(new PacketDecoder(response_buffer_))
 	,response_promise_()
 {}
 
 void RPC::set_seq(int32_t seq)
 {
-	header_.correlation_id = seq;
+	seq_ = seq;
 }
 
 int32_t RPC::get_seq() const
 {
-	return header_.correlation_id;
+	return seq_;
+}
+
+int16_t RPC::get_api_key() const
+{
+	return api_key_;
+}
+
+PacketDecoder* RPC::get_decoder()
+{
+	return decoder_.get();
 }
 
 const std::vector<boost::asio::const_buffer> RPC::encode_request()
@@ -34,16 +51,19 @@ const std::vector<boost::asio::const_buffer> RPC::encode_request()
 	// We encode header as one buffer and push a sequence of header and request body
 	// which was already encoded in calling thread. Buffer sequence allows us to do that
 	// without copying again, but we need to include full length in the header buffer prefix.
-	PacketEncoder header_encoder(64);
-	header_encoder.io(header_);
+	if (!header_encoder_) {
+		header_encoder_.reset(new PacketEncoder(20));
+		proto::RequestHeader header{api_key_, KafkaApiVersion, seq_, client_id_};
+		header_encoder_->io(header);
+	}
 
-	if (!header_encoder.ok()) {
+	if (!header_encoder_->ok()) {
 		fail(synkafka_error::encoding_error);
 		return {};
 	}
 
 	auto request_buffer = encoder_->get_as_slice(false);
-	auto header_buffer = header_encoder.get_as_buffer_sequence_head(request_buffer.size());
+	auto header_buffer = header_encoder_->get_as_buffer_sequence_head(request_buffer.size());
 
 	return std::vector<boost::asio::const_buffer>{{header_buffer.data(), header_buffer.size()}
 												 ,{request_buffer.data(), request_buffer.size()}
@@ -65,47 +85,54 @@ void RPC::fail(std::error_code ec)
 	response_promise_.set_exception(std::make_exception_ptr(ec));
 }
 
-void RPC::resolve(PacketDecoder&& decoder)
+void RPC::resolve()
 {
-	response_promise_.set_value(std::move(decoder));
+	response_promise_.set_value(std::move(*decoder_));
 }
 
-void RPC::swap(RPC& other)
-{
-	std::swap(header_, other.header_);
-	std::swap(encoder_, other.encoder_);
-	std::swap(response_buffer_, other.response_buffer_);
-	std::swap(response_promise_, other.response_promise_);
-}
-
-
-RPCQueue::Impl::Impl(std::shared_ptr<Connection> conn, rpc_success_handler_t on_success)
-	:conn_(std::move(conn))
+RPCQueue::Impl::Impl(Connection conn, rpc_success_handler_t on_success)
+	:conn_(conn)
 	,q_()
 	,next_seq_(0)
-	,on_success_()
+	,on_success_(on_success)
 {}
 
-RPCQueue::RPCQueue(std::shared_ptr<Connection> conn, rpc_success_handler_t on_success)
-	:pimpl_(new Impl(std::move(conn), on_success))
+RPCQueue::RPCQueue(Connection conn, rpc_success_handler_t on_success)
+	:pimpl_(new Impl(conn, on_success))
 {}
 
-void RPCQueue::push(RPC&& rpc)
+void RPCQueue::push(std::unique_ptr<RPC> rpc)
 {
-	pimpl_->conn_->get_strand().post(boost::bind(&RPCQueue::stranded_push, this, std::ref(rpc)));
+	// We need to keep single ownership of the RPC, but ASIO will make a copy
+	// of the argument as we pass it into the async on-strand method.
+	// shared_ptr has it's own issues (we can't take wonership back and transfer it)
+	// into the queue later since the transient copies ASIO makes will still try to delete the
+	// RPC after we've moved it into queue.
+	// So we keep it as a unique_ptr to here, then release it so it's not destroyed, and finally
+	// std::move it into the queue such that the queue will eventually destruct it when it's popped
+	// Also note that we use dispatch() not post() so that if queue push is called form asio thread
+	// there is no additional queuing delay. In practice this means that send queue pushes direct to recv queue
+	// and if appropriate initiaties async read right away rather than waiting for another trip through ASIO's internal
+	// queue.
+	pimpl_->conn_.get_strand().dispatch(boost::bind(&RPCQueue::stranded_push
+											   	   ,this
+											   	   ,rpc.release()));
 }
 
-void RPCQueue::stranded_push(RPC& rpc)
+void RPCQueue::stranded_push(RPC* rpc)
 {	
 	if (should_increment_seq_on_push()) {
-		rpc.set_seq(pimpl_->next_seq_++);
+		rpc->set_seq(pimpl_->next_seq_++);
 	}
 
-	pimpl_->q_.push_back(std::move(rpc));
+	// Transfer the pointed to RPC, we are giving the queue ownership of the pointed to RPC again
+	pimpl_->q_.emplace_back(rpc);
 
 	if (pimpl_->q_.size() == 1) {
 		// Was empty before, start coroutine processing
-		// the new queue.
+		if (pimpl_->coro_.is_complete()) {
+			pimpl_->coro_ = boost::asio::coroutine();
+		}
 		(*this)();
 	}
 }
@@ -113,7 +140,7 @@ void RPCQueue::stranded_push(RPC& rpc)
 void RPCQueue::fail_all(error_code ec)
 {
 	// Close socket so whole broker connection is torn down and re-established
-	pimpl_->conn_->close(ec);
+	pimpl_->conn_.close(ec);
 
 	// This will also call close but will be a no-op this way we get to propagate boost::system errors
 	fail_all(std::make_error_code(static_cast<std::errc>(ec.value())));
@@ -126,22 +153,25 @@ void RPCQueue::fail_all(std::error_code ec)
 		pop();
 	}
 	// Close (in case it isn't already closed due to boost error)
-	pimpl_->conn_->close();
+	pimpl_->conn_.close();
 }
 
 RPC* RPCQueue::next()
 {
 	if (!pimpl_->q_.empty()) {
-		return &(pimpl_->q_.front());
+		return pimpl_->q_.front().get();
 	}
 	return nullptr;
 }
 
-void RPCQueue::pop()
+std::unique_ptr<RPC> RPCQueue::pop()
 {
 	if (!pimpl_->q_.empty()) {
+		auto rpc = std::move(pimpl_->q_.front());
 		pimpl_->q_.pop_front();
+		return rpc;
 	}
+	return std::unique_ptr<RPC>(nullptr);
 }
 
 // Enable the pseudo-keywords reenter, yield and fork.
@@ -149,93 +179,115 @@ void RPCQueue::pop()
 
 void RPCSendQueue::operator()(error_code ec, size_t length)
 {
+	RPC* rpc = next();
+
+	if (!ec && !pimpl_->conn_.is_connected()) {
+		// Can't easily fall through to below code since 
+		// we have different error_code types from boost and std mismatched here
+		DBG_LOG() << "no connection, failing all";
+		fail_all(make_error_code(synkafka_error::network_fail));
+		return;
+	}
+
 	if (ec) {
+		DBG_LOG() << "failing all";
 		fail_all(ec);
 		return;
 	}
 
-	RPC* rpc = next();
-
-	reenter (this)
+	reenter (pimpl_->coro_)
 	{
 		while (rpc) {
-			yield pimpl_->conn_->async_write(rpc->encode_request(), *this);
+			DBG_LOG() << "starting send, api_key: " << rpc->get_api_key();
+			yield pimpl_->conn_.async_write(rpc->encode_request(), *this);
 
 			// Write was successful, handle success on the RPC and then
 			// pop it from queue.
 			{
-				RPC complete_rpc;
-
-				// Should be nothrow swap
-				rpc->swap(complete_rpc);
-
-				// Now we can pop the swapped husk from queue safely
-				pop();
+				DBG_LOG() << "write complete, length: " << length;
+				auto complete_rpc = pop();
 
 				if (pimpl_->on_success_) {
 					pimpl_->on_success_(std::move(complete_rpc));
+					DBG_LOG() << "success handler run, popped rpc, queue length now: " << pimpl_->q_.size();
 				}
 			}
+
+			rpc = next();
 		}
 	}
 }
 
 void RPCRecvQueue::operator()(error_code ec, size_t length)
 {
+	RPC* rpc = next();
+
 	if (ec) {
+		DBG_LOG() << "failing all";
 		fail_all(ec);
 		return;
 	}
 
-	RPC* rpc = next();
-	auto buffer = rpc->get_recv_buffer();
-	PacketDecoder pd(buffer);
-	int32_t response_len;
-	size_t offset;
+	shared_buffer_t buffer = rpc->get_recv_buffer();
+	PacketDecoder* pd = rpc->get_decoder();
+	int32_t response_len = 0;
 
-	reenter (this)
+	reenter (pimpl_->coro_)
 	{
 		while (rpc) {
-			yield pimpl_->conn_->async_read(boost::asio::buffer(&(*buffer)[0], buffer->size()), *this);
+			DBG_LOG() << "starting recv, api_key: " << rpc->get_api_key();
 
-			// Decode response header
-			pd.io(response_len);
+			// First up we need to read the response length
+			assert(buffer->size() > sizeof(response_len));
+			yield pimpl_->conn_.async_read(boost::asio::buffer(&(*buffer)[0], sizeof(response_len)), *this);
 
-			if (!pd.ok()) {
+			// Now we have the response length
+			pd->set_readable_length(sizeof(response_len));
+			pd->io(response_len);
+			if (!pd->ok()) {
 				fail_all(make_error_code(synkafka_error::decoding_error));
 				return;
 			}
 
-			// See if we have any more to read
+			DBG_LOG() << "recvd response length: " << response_len 
+				<< " (in " << length << " bytes)";
 
-			if (response_len > (buffer->size() - sizeof(response_len))) {
-				// There are more bytes to read that didn't fit in the buffer.
-				// We picked a largisih size that we expect to handle most buffer sizes
-				// we'll need in practice (producer/meta responses are smallish) so this shouldn't
-				// be necessary all the time, but in this case pay the realloc cost once.
-				offset = buffer->size();
+			// Read that many more bytes
+			if (response_len > 0) {
+				// See if our buffer is big enough for all of them (we need size of the length prefix + the length)
+				if (buffer->size() < (sizeof(response_len) + response_len)) {
+					buffer->resize(sizeof(response_len) + response_len);
+				}
 
-				buffer->resize(sizeof(response_len) + response_len);
+				// Now read the rest of the response
+				// Start from after the length prefix
+				yield pimpl_->conn_.async_read(boost::asio::buffer(&(*buffer)[0] + sizeof(response_len)
+																  ,response_len
+																  )
+											  ,*this
+											  );
 
-				// Now read the rest of the bytes into the rest of the buffer
-				yield pimpl_->conn_->async_read(boost::asio::buffer(&(*buffer)[0] + offset, buffer->size() - offset), *this);
+				// Note that we re-entered after yield so response_len is initialised to 0 again
+				// but we are guaranteed that async_read either read the whole length we asked for or 
+				// failed with an error which we would have caught above. So we can reset response_len from
+				// the number of bytes that were actually read.
+				// Tis' but a minor stain on the illusion of synchronous programming from this coroutine ;).
+				response_len = length;
 
-				// Now have the whole thing, confusingly we need to re-parse response length just to reset cursor to the correct place
-				// since PacketDecoder was recreated between calls. Could store the PacketDecoder in RPC I guess, Hmm.
-				pd.io(response_len);
-			}
+				// Read response header
+				pd->set_readable_length(sizeof(response_len) + response_len);
 
-			// We should now have the WHOLE response in buffer.
-
-			// Read the correlation id
-			{
 				proto::ResponseHeader h;
-				pd.io(h);
 
-				if (!pd.ok()) {
+				pd->io(h);
+
+				if (!pd->ok()) {
 					fail_all(make_error_code(synkafka_error::decoding_error));
 					return;
 				}
+
+				DBG_LOG() << "recvd response, length: " << response_len
+					<< ", correlation_id: " << h.correlation_id;
 
 				if (h.correlation_id != rpc->get_seq()) {
 					fail_all(make_error_code(synkafka_error::decoding_error));
@@ -245,16 +297,18 @@ void RPCRecvQueue::operator()(error_code ec, size_t length)
 
 			// Read was successful, handle success on the RPC and then
 			// pop it from queue.
-			{
-				RPC complete_rpc;
+			pop()->resolve();
 
-				// Should be nothrow swap
-				rpc->swap(complete_rpc);
+			DBG_LOG() << "resolved and popped rpc, queue length now: " << pimpl_->q_.size();
 
-				// Now we can pop the swapped husk from queue safely
-				pop();
+			rpc = next();
 
-				complete_rpc.resolve(std::move(pd));
+			if (rpc) {				
+				// Reset loop variables otherwise we'll still be looking at
+				// previous rpc's buffers/decoder
+				buffer = rpc->get_recv_buffer();
+				pd = rpc->get_decoder();
+				response_len = 0;
 			}
 		}
 	}

@@ -24,10 +24,14 @@ error_code Connection::impl::close(error_code ec)
 {
 	std::lock_guard<std::mutex> lk(mu_);
 
-	log->debug() << "Connection impl close(): with err " << ec.message();
-
 	if (state_ == STATE_CLOSED) {
 		return ec_;
+	}
+
+	if (ec) {
+		log()->warn() << "Connection to " << dns_query_ << " closed with error: " << ec.message();
+	} else {
+		log()->debug() << "Connection to " << dns_query_ << " closed";
 	}
 
 	ec_ = ec;
@@ -54,7 +58,6 @@ error_code Connection::impl::close(error_code ec)
 Connection::Connection(boost::asio::io_service& io_service, const std::string& host, int32_t port)
 	:pimpl_(new impl(io_service, host, port), [](impl* impl){ impl->close(); delete impl; })
 {
-	init_log();
 }
 
 error_code Connection::connect()
@@ -65,12 +68,12 @@ error_code Connection::connect()
 	{
 	case STATE_CONNECTED:
 		// Already connected, return immediately (with null error)
-		log->debug() << *this << "connect(): is already connected";
+		log()->debug() << *this << "connect(): is already connected";
 		return error_code();
 
 	case STATE_CLOSED:
 		// already closed
-		log->debug() << *this << "connect(): is already closed: " << pimpl_->ec_.message();
+		log()->debug() << *this << "connect(): is already closed: " << pimpl_->ec_.message();
 		return pimpl_->ec_;
 
 	case STATE_CONNECTING:
@@ -85,19 +88,19 @@ error_code Connection::connect()
 				// Condition variable timed out waiting for state change
 				auto ec = errc::make_error_code(errc::timed_out);
 				// Close with error, this will wake any other threads too
-				log->debug() << *this << "connect(): timed out: " << ec.message();
+				log()->debug() << *this << "connect(): timed out: " << ec.message();
 				lk.unlock();
 				return close(ec);
 			}
 
 			if (pimpl_->state_ != STATE_CONNECTED) {
 				// Connection attempt failed, return error
-				log->debug() << *this << "connect(): closed while we waited: "  << pimpl_->ec_.message();
+				log()->debug() << *this << "connect(): closed while we waited: "  << pimpl_->ec_.message();
 				return pimpl_->ec_;
 			}
 
 			// Success!
-			log->debug() << *this << "connect(): OK";
+			log()->debug() << *this << "connect(): OK";
 			return error_code();
 		}
 
@@ -105,7 +108,7 @@ error_code Connection::connect()
 		pimpl_->state_ = STATE_CONNECTING;
 		// unlock so we don't deadlock on recusion
 		lk.unlock();
-		log->debug() << *this << "connect(): starting connect";
+		log()->debug() << *this << "connect(): starting connect";
 		// Trigger actual connection coroutine
 		(*this)();
 
@@ -128,18 +131,18 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
 	// Coroutine
 	reenter (this)
 	{
-		log->debug() << *this << "coroutine(): starting resolve";
+		log()->debug() << *this << "coroutine(): starting resolve";
 		yield pimpl_->resolver_.async_resolve(pimpl_->dns_query_, *this);
 
 		if (ec) {
 			// Failed to resolve, can't do much with that...
-			log->debug() << *this << "coroutine(): resolve failed: " << ec.message();
+			log()->debug() << *this << "coroutine(): resolve failed: " << ec.message();
 			close(ec);
 			return;
 		}
 
 		while (endpoint_iterator != tcp::resolver::iterator()) {
-			log->debug() << *this << "coroutine(): async connect to " 
+			log()->debug() << *this << "coroutine(): async connect to " 
 				<< endpoint_iterator->host_name()
 				<< ":" << endpoint_iterator->service_name();
 
@@ -147,7 +150,7 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
 
     		if (ec) {
     			// Error connecting. close socket and try again on next iteration
-				log->debug() << *this << "coroutine(): async connect failed: " << ec.message();
+				log()->debug() << *this << "coroutine(): async connect failed: " << ec.message();
     			pimpl_->socket_.close();
     			++endpoint_iterator;
     		} else {
@@ -156,7 +159,7 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
     				std::lock_guard<std::mutex> lk(pimpl_->mu_);
     				pimpl_->state_ = STATE_CONNECTED;
     			}
-				log->debug() << *this << "coroutine(): async connect OK ";
+				log()->debug() << *this << "coroutine(): async connect OK ";
     			// Signal any waiters that we are now connected
 		    	pimpl_->cv_.notify_all();
     			return;
@@ -165,7 +168,7 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
 
 		// If we made it here then we faile dto connect to all endpoints given
 		// by DNS
-		log->debug() << *this << "coroutine(): async connect failed (no more endpoints): " << ec.message();
+		log()->debug() << *this << "coroutine(): async connect failed (no more endpoints): " << ec.message();
 		close(ec);
 	}
 }
@@ -180,11 +183,7 @@ error_code Connection::close(error_code ec)
 
 std::ostream& operator<<(std::ostream& os, const Connection& conn)
 {
-	os << "Connection[" 
-		<< conn.pimpl_->dns_query_.host_name() 
-		<< ":" << conn.pimpl_->dns_query_.service_name()
-		<< "] ";
-	return os;
+	return os << "Connection[" << conn.pimpl_->dns_query_ << "] ";
 }
 
 }

@@ -30,7 +30,7 @@ protected:
             + "," + get_env_string("KAFKA_3_HOST")
                 + ":" + std::to_string(get_env_int("KAFKA_3_PORT"));
 
-        client_.reset(new ProducerClient(broker_config_));
+        client_.reset(new ProducerClient(broker_config_, 4));
     }
 
     virtual void TearDown()
@@ -120,21 +120,25 @@ protected:
 
 TEST_F(ProducerClientTest, PartitionAvailability)
 {
+    log()->debug("Existant topic/partition");
+
     auto ec = client_->check_topic_partition_leader_available("test", 0);
 
-    EXPECT_FALSE(ec);
+    ASSERT_FALSE(ec) << ec.message();
 
-    // Non existent topic
+
+    log()->debug("Non-existant topic/partition");
     ec = client_->check_topic_partition_leader_available("foobar", 0);
 
-    EXPECT_EQ(kafka_error::UnknownTopicOrPartition, ec);
+    ASSERT_EQ(kafka_error::UnknownTopicOrPartition, ec);
 
-    // Valid topic, non existent partition
+    
+    log()->debug("Valid topic, non-existant partition");
     ec = client_->check_topic_partition_leader_available("test", 128);
 
-    EXPECT_EQ(kafka_error::UnknownTopicOrPartition, ec);
+    ASSERT_EQ(kafka_error::UnknownTopicOrPartition, ec);
 
-    // Disconnect kafkas....
+    log()->debug("Disconnected brokers");
     std::system("cd tests/functional && docker-compose -p synkafka kill");
 
     // Now even the valid one shoud fail with network error
@@ -146,15 +150,20 @@ TEST_F(ProducerClientTest, PartitionAvailability)
     // fail with network error, we should be told that network error occured NOT just that the partition is unknown
     ec = client_->check_topic_partition_leader_available("foobar", 98);
 
-    EXPECT_EQ(synkafka_error::network_fail, ec)
-        << "Got error: " << ec.message();
-
+    // bring back cluster before we assert so we don't leave it broken for next test run if we fail
     std::system("cd tests/functional && docker-compose -p synkafka start");
 
-    // And work again
+    ASSERT_EQ(synkafka_error::network_fail, ec)
+        << "Got error: " << ec.message();
+
+    // Fudgy... if we try to reconnect too soon, it seems to fail - kafka brokers take a while to boot or something
+    // after docker container is started.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+    log()->debug("Reconnected brokers");
     ec = client_->check_topic_partition_leader_available("test", 0);
 
-    ASSERT_FALSE(ec);
+    ASSERT_FALSE(ec) << ec.message();
 }
 
 TEST_F(ProducerClientTest, BasicProducing)
@@ -228,7 +237,7 @@ TEST_F(ProducerClientTest, SnappyProducing)
     }
 }
 
-/*TEST_F(ProducerClientTest, ParallelProduce)
+TEST_F(ProducerClientTest, ParallelProduce)
 {
     // Run a separate thread for each partition all producing constantly for 5 seconds
     std::vector<std::thread> threads(8);
@@ -249,7 +258,7 @@ TEST_F(ProducerClientTest, SnappyProducing)
                     << " from partition thread: " << partition;
                 ++batches_produced;
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                //std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
                 now = std::chrono::high_resolution_clock::now();
             } while ((now - start) < std::chrono::seconds(5));
@@ -262,11 +271,9 @@ TEST_F(ProducerClientTest, SnappyProducing)
     }
 
     std::cout << "\t> Batches produced: " << batches_produced << std::endl;
-}*/
+}
 
 // TODO
-// - test multiple batches
-// - test parallel produce to same broker
 // - test error cases
 //  - kill leader for partition, retry for up to a minute every second until failover
 //  - kill replica and require 2 acks, ensure times out

@@ -21,6 +21,9 @@ if [ -e ./docker-compose-local.yml ]; then
 	export COMPOSE_FILE=./docker-compose-local.yml ;
 fi
 
+# kill containers if they are up ungraciously as they take a while to do graceful termination and we don't care
+docker-compose kill
+
 docker-compose up -d
 
 # Create test partitions (if test topic doesn't already exist - descirber reutns nothing if it doesn't)

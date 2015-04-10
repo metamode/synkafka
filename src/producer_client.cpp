@@ -226,8 +226,10 @@ boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partiti
 		throw std::runtime_error("No broker object made for a known partition. Kafka is trolling you or there is a bug. Closing client.");
 	}
 
-	if (broker_it->second.broker == nullptr) {
+	if (broker_it->second.broker == nullptr
+		|| broker_it->second.broker->is_closed()) {
 		// We have a null broker pointer which means it's not connected yet, create a new instance...
+		// Or it allready fialed and got disconnected internally, so we reset.
 		broker_it->second.broker.reset(new Broker(io_service_
 												 ,broker_it->second.config.host
 												 ,broker_it->second.config.port
@@ -272,7 +274,7 @@ void ProducerClient::refresh_meta(int attempts)
 	if (last_meta_fetch_ >= requested_at) {
 		// Some other thread completed a meta fetch while we were waiting on lock. No need to
 		// do it ourselves.
-		log->debug("ProducerClient thread was waiting on meta update that happened elsewhere");
+		log()->debug("ProducerClient thread was waiting on meta update that happened elsewhere");
 		return;
 	}
 
@@ -293,7 +295,7 @@ void ProducerClient::refresh_meta(int attempts)
 		if (broker == nullptr) {
 			// No connected brokers, try each one from config (they are randomly ordered on construction)
 			for (auto& cfg : broker_configs_) {
-				// Try creating a broker from this config and see if we can fetch meta data in the timeout
+				// Try creating a broker from this config and see if we can fetch metadata in the timeout
 				broker.reset(new Broker(io_service_
 									   ,cfg.host
 									   ,cfg.port
@@ -338,7 +340,7 @@ void ProducerClient::refresh_meta(int attempts)
 			meta_lock.unlock();
 			return refresh_meta(attempts + 1);
 		}
-		log->error("Failed to get Metadata after ") << attempts + 1 << " attempts";
+		log()->error("Failed to get Metadata after ") << attempts + 1 << " attempts";
 		return;
     }
 
@@ -400,7 +402,7 @@ void ProducerClient::refresh_meta(int attempts)
 		partition_map_.swap(new_map);
 	}
 
-	log->debug("Updated Cluster Meta:\n") << debug_dump_meta();
+	log()->debug("Updated Cluster Meta:\n") << debug_dump_meta();
 	last_meta_fetch_ = std::chrono::system_clock::now();
 }
 
@@ -432,19 +434,19 @@ void ProducerClient::run_asio()
 	try
 	{
 		io_service_.run();
-		log->info("synkafka::ProducerClient shutting asio thread shutdown cleanly");
+		log()->info("synkafka::ProducerClient shutting asio thread shutdown cleanly");
 	}
 	catch (const std::error_code& e)
 	{
-		log->error("ProducerClient asio thread exits with error_code ") << e.value() << ": " << e.message();
+		log()->error("ProducerClient asio thread exits with error_code ") << e.value() << ": " << e.message();
 	}
 	catch (const std::exception& e)
 	{
-		log->error("ProducerClient asio thread exits with exception: ") << e.what();
+		log()->error("ProducerClient asio thread exits with exception: ") << e.what();
 	}
 	catch (...)
 	{
-		log->error("ProducerClient asio thread exits with unknown exception");
+		log()->error("ProducerClient asio thread exits with unknown exception");
 	}
 }
 

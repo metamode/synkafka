@@ -31,9 +31,22 @@ for node in cluster_config:
 
 env_vars.append('SYNKAFKA_FUNC_KAFKA_BROKER_NUM='+str(broker_num))
 
+args = ' '.join(sys.argv[1:]).strip()
+
+# Auto run in GDB
+gdb = False
+
+cmd = './build-debug/tests/functional/synkafka_func_test ' + ' ' + args
+
+if gdb:
+	argpfx = '--args ' if args else ''
+	cmd = 'gdb --ex run ' + argpfx + cmd
+
+print "RUNNING: " + cmd
+
 # recompile debug buid if needed to make it single call for debugging cycle in functional tests
 rc = call('tup ./build-debug', shell=True);
 if rc:
 	exit(rc)
 
-call(' '.join(env_vars) + ' ./build-debug/tests/functional/synkafka_func_test ' + ' '.join(sys.argv[1:]), shell=True);
+call(' '.join(env_vars) + ' ' +cmd, shell=True);

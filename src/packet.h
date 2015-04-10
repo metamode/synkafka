@@ -164,6 +164,12 @@ public:
 		kafka_proto_io(*this, type);
 	}
 
+	// Called during read - the buffer might well be larger than we need as an optimisation
+	// so this explicitly allows reader to set the length of buffer it actually read useful data into
+	// otherwise we might happily go decoding off the end of the actual data that was sent if we get an unexpected
+	// response. This might be called multiple times on a decoder as the reader reads more data from transport.
+	void set_readable_length(size_t length);
+
 	// When decoding nested messages the uncompressed nested messageset is in a buffer in decompress_buffs_
 	// but we need to decode from that, so we use another PacketDecoder to decode from that decompressed buffer.
 	// We could just make a copy of the buffer for now although it's suboptimal by using slice::str() however

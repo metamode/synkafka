@@ -16,7 +16,10 @@ namespace synkafka {
 PacketDecoder::PacketDecoder(shared_buffer_t buffer)
 	: PacketCodec()
 	, buff_(buffer)
-{}
+{
+	// Assume whole buffer is full of readable content
+	size_ = buff_->size();
+}
 
 void PacketDecoder::io(int8_t& value)
 {
@@ -267,14 +270,19 @@ void   PacketDecoder::end_length(size_t field_offset)
 	// had to read and hack it in a different way.
 }
 
+void PacketDecoder::set_readable_length(size_t length)
+{
+	size_ = length;
+}
+
 bool PacketDecoder::can_read(size_t bytes)
 {
 	if (ok()) {
-		auto remaining = buff_->size() - cursor_;
+		auto remaining = size_ - cursor_;
 		if (bytes > remaining) {
 			set_err(ERR_TRUNCATED)
 				<< "Tried to read more bytes than we have available in buffer. "
-				<< bytes << " requested " << remaining << " of " << buff_->size() << " remain";
+				<< bytes << " requested " << remaining << " of " << size_ << " remain";
 			return false;
 		}
 		return true;

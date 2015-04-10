@@ -68,7 +68,6 @@ public:
 	// Debugging
 	friend std::ostream& operator<<(std::ostream& os, const Connection& conn);
 
-
 private:
 
 	typedef enum { STATE_INIT, STATE_CONNECTING, STATE_CONNECTED, STATE_CLOSED } ConnectionState;
@@ -97,3 +96,13 @@ private:
 };
 
 }
+
+namespace boost {
+namespace asio {
+namespace ip {
+	inline std::ostream& operator<<(std::ostream& os, const tcp::resolver::query& query)
+	{
+		os << query.host_name() << ":" << query.service_name();
+		return os;
+	}
+}}}
