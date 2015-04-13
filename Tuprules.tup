@@ -1,6 +1,11 @@
-CFLAGS += -Wall -std=c++11 -stdlib=libc++
+CFLAGS += -Wall -std=c++11
 
-CXX = gccfilter -c -a g++
+ifeq (@(TUP_PLATFORM),macosx)
+	CFLAGS += -stdlib=libc++
+endif 
+
+#CXX = gccfilter -c -a g++
+CXX = g++
 
 ifdef DBG
 	CFLAGS += -ggdb
