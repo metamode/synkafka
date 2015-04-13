@@ -79,7 +79,7 @@ public:
 	// block for up to the connect_timeout.
 	// Non-error return value of 0 means we are all good, otherwise assume not available and inspect category and code for reason.
 	// category may be synkafka, kafka or system... std::errc conditions are defined for cases like timeout and invalid config.
-	std::error_code check_topic_partition_leader_available(const slice& topic, int32_t partition_id);
+	std::error_code check_topic_partition_leader_available(const std::string& topic, int32_t partition_id);
 
 
 	// Synchronously produce a batch of messages
@@ -87,7 +87,7 @@ public:
 	// for known issues like maximum message size.
 	// The caller must be configured to set max_message_size on the MessageSet correctly...
 	// The returned error_code
-	std::error_code produce(const slice& topic, int32_t partition_id, MessageSet& messages);
+	std::error_code produce(const std::string& topic, int32_t partition_id, MessageSet& messages);
 
 	// Stop client and it's worker threads. Disconnects. The object cannot be used again after this is called.
 	void close();
@@ -102,7 +102,7 @@ private:
 
 	struct Partition
 	{
-		slice	topic;
+		std::string	topic;
 		int32_t partition_id;
 
 		bool operator==(const Partition& other) const
@@ -130,6 +130,7 @@ private:
 	void close_broker(boost::shared_ptr<Broker> broker);
 	void refresh_meta(int attempts = 0);
 
+	// Caller MUST hold lock on mu_
 	std::string debug_dump_meta();
 
 	std::deque<proto::Broker> 						broker_configs_; // Only the brokers that were initially passed as bootstrap - we don't have ids just host/ports

@@ -14,6 +14,7 @@
 #include "synkafka.h"
 
 #include "test_cluster.h"
+#include "log.h"
 
 using namespace synkafka;
 
@@ -37,7 +38,7 @@ protected:
     {
     }
 
-    MessageSet make_message_set() 
+    MessageSet make_message_set(size_t n = 10) 
     {
         MessageSet messages;
 
@@ -46,7 +47,7 @@ protected:
         auto now = std::chrono::high_resolution_clock::now();
         std::string now_str = std::to_string(now.time_since_epoch().count());
 
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < n; ++i) {
             messages.push(now_str + ": This is a test message number "+std::to_string(i), "Key "+std::to_string(i), true);
         }
 
@@ -158,7 +159,10 @@ TEST_F(ProducerClientTest, PartitionAvailability)
 
     // Fudgy... if we try to reconnect too soon, it seems to fail - kafka brokers take a while to boot or something
     // after docker container is started.
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    // This test actually works reliably for me with just 1 or 2 seconds pause sine we already have meta data and we only
+    // check we can open TCP connection below. But subsequent tests in this file break since the cluster has not yet respolved
+    // it's various leadership elections and discovered other brokers for some seconds after they all come online.
+    std::this_thread::sleep_for(std::chrono::seconds(10));
 
     log()->debug("Reconnected brokers");
     ec = client_->check_topic_partition_leader_available("test", 0);
@@ -171,7 +175,7 @@ TEST_F(ProducerClientTest, BasicProducing)
     auto m = make_message_set();
     auto ec = client_->produce("test", 0, m);
 
-    EXPECT_FALSE(ec);
+    EXPECT_FALSE(ec) << ec.message();
 
     // This breaks if test kafka has any other writes to it concurrently with this process
     // woud also break if we ever try parallelize or run multiple tests at same time.
@@ -196,7 +200,7 @@ TEST_F(ProducerClientTest, GZIPProducing)
 
     auto ec = client_->produce("test", 0, m);
 
-    EXPECT_FALSE(ec);
+    EXPECT_FALSE(ec) << ec.message();
 
     // This breaks if test kafka has any other writes to it concurrently with this process
     // woud also break if we ever try parallelize or run multiple tests at same time.
@@ -220,7 +224,7 @@ TEST_F(ProducerClientTest, SnappyProducing)
 
     auto ec = client_->produce("test", 0, m);
 
-    EXPECT_FALSE(ec);
+    EXPECT_FALSE(ec) << ec.message();
 
     // This breaks if test kafka has any other writes to it concurrently with this process
     // woud also break if we ever try parallelize or run multiple tests at same time.
@@ -244,11 +248,22 @@ TEST_F(ProducerClientTest, ParallelProduce)
 
     std::atomic<uint64_t> batches_produced(0);
 
+    // Disable debug logging since it's super spammy on this test
+    auto level = log()->level();
+    if (level <= spdlog::level::debug) {
+        log()->debug("Disabling spammy debug output");
+        log()->set_level(spdlog::level::info);
+    }
+
+    size_t batch_size = 1000;
+
     for (int i = 0; i < threads.size(); ++i) {
         threads[i] = std::thread([&](int partition){
             auto start = std::chrono::high_resolution_clock::now();
             auto now = std::chrono::high_resolution_clock::now();
-            auto m = make_message_set();
+            // 1000 messages in a batch to make it non trivial/more realistic
+            auto m = make_message_set(batch_size);
+            m.set_compression(COMP_GZIP);
             do
             {
                 auto ec = client_->produce("test", partition, m);
@@ -258,19 +273,24 @@ TEST_F(ProducerClientTest, ParallelProduce)
                     << " from partition thread: " << partition;
                 ++batches_produced;
 
-                //std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                //log()->info("Produced batch ") << batches_produced << " to partition " << partition;
+
+                //std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
                 now = std::chrono::high_resolution_clock::now();
             } while ((now - start) < std::chrono::seconds(5));
 
         }, i);
-    }    
+    }
 
     for (int i = 0; i < threads.size(); ++i) {
         threads[i].join();
     }
 
-    std::cout << "\t> Batches produced: " << batches_produced << std::endl;
+    log()->set_level(level);
+    log()->debug("Enabled spammy debug output");
+
+    std::cout << "\t> Batches produced: " << batches_produced << ", messages: " << (batch_size * batches_produced) << std::endl;
 }
 
 // TODO

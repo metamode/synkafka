@@ -153,17 +153,30 @@ slice :: ~slice() throw ()
 inline int
 slice :: compare(const slice& rhs) const
 {
-    if (m_sz < rhs.m_sz)
+    // banks fix: this seemed to order slices only by size
+    // and then ONLY for same sized slice, make a comparison against 
+    // actual bytes. i.e. "foo" would sort before "aaaaaa" since it's shorter...
+    size_t len = (m_sz < rhs.m_sz) ? m_sz : rhs.m_sz;
+
+    int cmp = memcmp(m_data, rhs.m_data, len);
+
+    if (cmp == 0)
     {
-        return -1;
-    }
-    else if (m_sz > rhs.m_sz)
-    {
-        return 1;
+        if (m_sz == rhs.m_sz)
+        {
+            // Same value
+            return 0;
+        }
+        else
+        {
+            // If rhs is bigger, result will be negative (i.e. we are prefix of rhs and sort first)
+            // else this will be positive and rhs is prefix that sorts first
+            return m_sz - rhs.m_sz;
+        }
     }
     else
     {
-        return memcmp(m_data, rhs.m_data, m_sz);
+        return cmp;
     }
 }
 

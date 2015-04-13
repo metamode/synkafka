@@ -85,7 +85,7 @@ void ProducerClient::set_client_id(const std::string& client_id)
 	client_id_ = client_id;
 }
 
-std::error_code ProducerClient::check_topic_partition_leader_available(const slice& topic, int32_t partition_id)
+std::error_code ProducerClient::check_topic_partition_leader_available(const std::string& topic, int32_t partition_id)
 {
 	if (stopping_.load()) {
 		return make_error_code(synkafka_error::client_stopping);
@@ -113,7 +113,7 @@ std::error_code ProducerClient::check_topic_partition_leader_available(const sli
 	return ec;
 }
 
-std::error_code ProducerClient::produce(const slice& topic, int32_t partition_id, MessageSet& messages)
+std::error_code ProducerClient::produce(const std::string& topic, int32_t partition_id, MessageSet& messages)
 {
 	if (stopping_.load()) {
 		return make_error_code(synkafka_error::client_stopping);
@@ -143,7 +143,7 @@ std::error_code ProducerClient::produce(const slice& topic, int32_t partition_id
 	// for the partition. Send it batch!
 	proto::ProduceRequest rq{required_acks_
     						,produce_timeout_
-    						,{proto::ProduceTopic{topic.str()
+    						,{proto::ProduceTopic{topic
     											 ,{proto::ProducePartition{partition_id
     											 						  ,messages
     											 						  }
@@ -189,6 +189,8 @@ std::error_code ProducerClient::produce(const slice& topic, int32_t partition_id
    			// actually worked otherwise we could be stuck in loop. For now just let client
    			// figure that out depending on what makes sense for them. We might need to expose
    			// meta refresh failures in that case?
+   			log()->warn("Metadata is stale broker ") << broker->get_config().node_id 
+   				<< " is not leader for (" << topic << ", " << partition_id << ")";
    			refresh_meta();
    		}
    		return ec;
@@ -203,6 +205,8 @@ boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partiti
 
 	auto partition_it = partition_map_.find(p);
 	if (partition_it == partition_map_.end()) {
+		log()->debug("Don't know about partition (") << p.topic << ", " << p.partition_id << ") refresh meta: " << refresh_meta
+			<< "\n" << debug_dump_meta();
 		// Don't know about that partition, re-fetch metadata?
 		if (refresh_meta) {
 			// Unlock so that refresh and recursive call can get lock
@@ -400,9 +404,9 @@ void ProducerClient::refresh_meta(int attempts)
 
 		// Swap!
 		partition_map_.swap(new_map);
-	}
 
-	log()->debug("Updated Cluster Meta:\n") << debug_dump_meta();
+		log()->info("Updated Cluster Meta:\n") << debug_dump_meta();
+	}
 	last_meta_fetch_ = std::chrono::system_clock::now();
 }
 
@@ -450,10 +454,9 @@ void ProducerClient::run_asio()
 	}
 }
 
+// Caller MUST hold lock on mu_
 std::string ProducerClient::debug_dump_meta()
 {
-	std::lock_guard<std::mutex> lk(mu_);
-
 	std::stringstream dump("Brokers:");
 
 	for (auto& pair : brokers_) {
@@ -465,7 +468,7 @@ std::string ProducerClient::debug_dump_meta()
 	}
 
 	for (auto& pair : partition_map_) {
-		dump << std::setw(10) << std::setfill(' ') << pair.first.topic.str()
+		dump << std::setw(10) << std::setfill(' ') << pair.first.topic
 			 << "(" << pair.first.partition_id << ") -> "
 			 << std::setw(5) << std::setfill(' ') << pair.second
 			 << std::endl;

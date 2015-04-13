@@ -11,11 +11,10 @@ namespace synkafka {
 // output.
 typedef spdlog::details::line_logger logger_t;
 
-static std::atomic_flag init_done = ATOMIC_FLAG_INIT;
-
-static inline std::shared_ptr<spdlog::logger> log() {
+inline std::shared_ptr<spdlog::logger> log() {
 
 	static auto log = spdlog::stdout_logger_mt("console");
+	static std::atomic_flag init_done = ATOMIC_FLAG_INIT;
 
 	if (!init_done.test_and_set()) {
 		// Was false so we are fist here
@@ -43,6 +42,8 @@ static inline std::shared_ptr<spdlog::logger> log() {
 		} else if (strcmp(level, "OFF") == 0) {		
 			log->set_level(spdlog::level::off);
 		}
+
+		log->info("LOG INIT");
 	}
 
 	return log;
