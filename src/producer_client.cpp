@@ -87,6 +87,11 @@ void ProducerClient::set_client_id(const std::string& client_id)
 
 std::error_code ProducerClient::check_topic_partition_leader_available(const std::string& topic, int32_t partition_id)
 {
+	return check_topic_partition_leader_available(topic, partition_id, nullptr);
+}
+
+std::error_code ProducerClient::check_topic_partition_leader_available(const std::string& topic, int32_t partition_id, int32_t* leader_id)
+{
 	if (stopping_.load()) {
 		return make_error_code(synkafka_error::client_stopping);
 	}
@@ -108,6 +113,10 @@ std::error_code ProducerClient::check_topic_partition_leader_available(const std
 
 	if (ec) {
 		close_broker(std::move(broker));
+	} else {
+		if (leader_id != nullptr) {
+			*leader_id = broker->get_config().node_id;
+		}
 	}
 
 	return ec;
@@ -190,7 +199,7 @@ std::error_code ProducerClient::produce(const std::string& topic, int32_t partit
    			// figure that out depending on what makes sense for them. We might need to expose
    			// meta refresh failures in that case?
    			log()->warn("Metadata is stale broker ") << broker->get_config().node_id 
-   				<< " is not leader for (" << topic << ", " << partition_id << ")";
+   				<< " is not leader for [" << topic << "," << partition_id << "]";
    			refresh_meta();
    		}
    		return ec;
@@ -204,8 +213,8 @@ boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partiti
 	std::unique_lock<std::mutex> lk(mu_);
 
 	auto partition_it = partition_map_.find(p);
-	if (partition_it == partition_map_.end()) {
-		log()->debug("Don't know about partition (") << p.topic << ", " << p.partition_id << ") refresh meta: " << refresh_meta
+	if (partition_it == partition_map_.end() || partition_it->second < 0) {
+		log()->debug("Don't know about partition (or no leader was elected yet) [") << p.topic << "," << p.partition_id << "] refresh meta: " << refresh_meta
 			<< "\n" << debug_dump_meta();
 		// Don't know about that partition, re-fetch metadata?
 		if (refresh_meta) {
@@ -240,6 +249,7 @@ boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partiti
 												 ,client_id_
 												 )
 									  );
+		broker_it->second.broker->set_node_id(broker_it->first);
 	}
 
 	return broker_it->second.broker;
@@ -263,6 +273,14 @@ void ProducerClient::close_broker(boost::shared_ptr<Broker> broker)
 				broker_it->second.broker.reset();
 			}
 	}
+
+	// Mark metadata as dirty so next call, reloads it
+	// we don't do it here in case this was being closed after a timeout and we will exceed time
+	// blocked by also waiting to refresh meta.
+	// This is necessary in several cases including if the leader for a partition dies: in this case
+	// we must reload meta to discover who new leader is. Without this we would be stuck trying to contact
+	// old master indefinitely.
+	partition_map_.clear();
 }
 
 void ProducerClient::refresh_meta(int attempts)
@@ -344,7 +362,6 @@ void ProducerClient::refresh_meta(int attempts)
 			meta_lock.unlock();
 			return refresh_meta(attempts + 1);
 		}
-		log()->error("Failed to get Metadata after ") << attempts + 1 << " attempts";
 		return;
     }
 
@@ -385,7 +402,9 @@ void ProducerClient::refresh_meta(int attempts)
 			// Some brokers have been removed from cluster remove them from our state too
 			for (auto b_it = brokers_.cbegin(); b_it != brokers_.end(); /* no increment */) {
 				if (live_broker_ids.count(b_it->first) == 0) {
-					b_it->second.broker->close();
+					if (b_it->second.broker) {
+						b_it->second.broker->close();
+					}
 					brokers_.erase(b_it++);
 				} else {
 					++b_it;

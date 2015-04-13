@@ -89,6 +89,7 @@ public:
 
 	void close();
 
+	void set_node_id(int32_t node_id) { identity_.node_id = node_id; }
 	void set_connect_timeout(int32_t milliseconds) { conn_.set_timeout(milliseconds); }
 
 	// Blocking, thread-safe call.

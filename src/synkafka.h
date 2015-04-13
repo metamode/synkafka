@@ -78,9 +78,13 @@ public:
 	// Note that this may attempt to connect to broker if we have no connection and so may
 	// block for up to the connect_timeout.
 	// Non-error return value of 0 means we are all good, otherwise assume not available and inspect category and code for reason.
-	// category may be synkafka, kafka or system... std::errc conditions are defined for cases like timeout and invalid config.
+	// category may be synkafka_error, kafka_error or system... std::errc conditions are defined for cases like timeout and 
+	// invalid config.
 	std::error_code check_topic_partition_leader_available(const std::string& topic, int32_t partition_id);
 
+	// Overload allows caller to obtain actual nodeid of the leader if it is available.
+	// Use with care, this is really only exposed to allow for thorough testing.
+	std::error_code check_topic_partition_leader_available(const std::string& topic, int32_t partition_id, int32_t* leader_id);
 
 	// Synchronously produce a batch of messages
 	// We assume the messages were already bult using the MessageSet class which validates

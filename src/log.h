@@ -42,8 +42,6 @@ inline std::shared_ptr<spdlog::logger> log() {
 		} else if (strcmp(level, "OFF") == 0) {		
 			log->set_level(spdlog::level::off);
 		}
-
-		log->info("LOG INIT");
 	}
 
 	return log;

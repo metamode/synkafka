@@ -22,8 +22,10 @@ if [ -e ./docker-compose-local.yml ]; then
 fi
 
 # kill containers if they are up ungraciously as they take a while to do graceful termination and we don't care
+# also delete them - they are from images and this way we start with empty logs which for example makes failover tests
+# much quicker and more predictable..
 docker-compose kill
-
+docker-compose rm --force
 docker-compose up -d
 
 # Create test partitions (if test topic doesn't already exist - descirber reutns nothing if it doesn't)

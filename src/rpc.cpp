@@ -142,7 +142,7 @@ void RPCQueue::fail_all(error_code ec)
 	// Close socket so whole broker connection is torn down and re-established
 	pimpl_->conn_.close(ec);
 
-	// This will also call close but will be a no-op this way we get to propagate boost::system errors
+	// This will also call close but will be a no-op. This way we get to propagate boost::system errors
 	fail_all(std::make_error_code(static_cast<std::errc>(ec.value())));
 }
 

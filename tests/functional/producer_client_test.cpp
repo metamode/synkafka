@@ -90,6 +90,35 @@ protected:
         return lines;
     }
 
+    bool check_with_retry(const std::string& topic, int32_t partition, int retry_for_seconds)
+    {
+        auto now = std::chrono::system_clock::now();
+        auto deadline = now + std::chrono::seconds(retry_for_seconds);
+        int attempts = 0;
+        int32_t new_leader_id = 9999;
+
+        while (now < deadline) {
+            auto ec = client_->check_topic_partition_leader_available("test", 0, &new_leader_id);
+
+            if (ec) {
+                ++attempts;
+                log()->debug("Failed to get leader for (test, 0) on attempt ") << attempts;
+            } else {
+                log()->debug("Got new leader for (test, 0) on attempt ") << attempts
+                    << ", new leader is node " << new_leader_id;
+
+                EXPECT_NE(9999, new_leader_id);
+
+                return true;
+            }
+
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+
+            now = std::chrono::system_clock::now();
+        }
+        return false;
+    }
+
     std::list<std::string> exec(const std::string& cmd)
     {
         FILE* pipe = popen(cmd.c_str(), "r");
@@ -293,9 +322,46 @@ TEST_F(ProducerClientTest, ParallelProduce)
     std::cout << "\t> Batches produced: " << batches_produced << ", messages: " << (batch_size * batches_produced) << std::endl;
 }
 
-// TODO
-// - test error cases
-//  - kill leader for partition, retry for up to a minute every second until failover
-//  - kill replica and require 2 acks, ensure times out
+TEST_F(ProducerClientTest, ProduceFailover)
+{
+    auto m = make_message_set();
 
+    // Produce one batch to be sure leader is up before
+    auto ec = client_->produce("test", 0, m);
+    ASSERT_FALSE(ec) << ec.message();
 
+    // Figure out which node it went to 
+    int32_t leader_id = 9999;
+    ec = client_->check_topic_partition_leader_available("test", 0, &leader_id);
+
+    ASSERT_FALSE(ec) << ec.message();
+    ASSERT_NE(9999, leader_id);
+
+    log()->debug("Leader for (test, 0) before is ") << leader_id;
+
+    // Now we must kill just that nodeid. We figure it out based on knowledge of config
+    // if that changes, this test should be updated.
+    // Currently nodeid is set to be same as public container port which is set to 9091,9092,9093
+    // for brokers 1,2,3 respectively.
+    std::string broker_name = "kafka" + std::to_string(leader_id - 9090);
+
+    log()->debug("Disconnecting broker " + broker_name);
+    std::system(std::string("cd tests/functional && docker-compose -p synkafka kill " + broker_name).c_str());
+
+    // We should fail to connect on next attempt    
+    ec = client_->produce("test", 0, m);
+    EXPECT_FALSE(!ec)
+        << "Expected network failure, got: " << ec.message();
+
+    // Then if we keep trying for long enough (say 30 seconds - shorter would fail often on my test setup) 
+    // we should eventually discover a new broker
+    // and be able to continue producing
+    EXPECT_TRUE(check_with_retry("test", 0, 30));
+
+    // Now produce should work
+    ec = client_->produce("test", 0, m);
+    EXPECT_FALSE(ec) << ec.message();
+
+    log()->debug("Reconnecting broker " + broker_name);
+    std::system(std::string("cd tests/functional && docker-compose -p synkafka start " + broker_name).c_str());
+}
