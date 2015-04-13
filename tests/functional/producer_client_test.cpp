@@ -54,7 +54,7 @@ protected:
         return messages;
     }
 
-    std::list<std::string> get_last_n_messages(const std::string& topic, int partition, int n)
+    std::list<std::string> get_last_n_messages(const std::string& topic, int partition, int n, int attempt = 1)
     {
         std::string base_cmd = "cd tests/functional && ./kafka-simple-consumer-shell.sh --broker-list="
                                 + broker_config_
@@ -74,6 +74,12 @@ protected:
         if (std::regex_match(lines.back(), sm, last_line_re) && sm.size() == 2) {
             last_offset = std::atoi(sm[1].str().c_str());
         } else {
+            if (attempt < 3) {
+                // kafka test cluster is a little flaky - sometimes this script faild to get meta
+                // even when cluster seems fine. So wait a bit and retry a couple of times...
+                std::this_thread::sleep_for(std::chrono::milliseconds(500 * attempt));
+                return get_last_n_messages(topic, partition, n, attempt + 1);
+            }
             throw std::runtime_error("Output of kafka-simple-consumer-shell.sh isn't what we expected");
         }
 
@@ -148,57 +154,6 @@ protected:
 };
 
 
-TEST_F(ProducerClientTest, PartitionAvailability)
-{
-    log()->debug("Existant topic/partition");
-
-    auto ec = client_->check_topic_partition_leader_available("test", 0);
-
-    ASSERT_FALSE(ec) << ec.message();
-
-
-    log()->debug("Non-existant topic/partition");
-    ec = client_->check_topic_partition_leader_available("foobar", 0);
-
-    ASSERT_EQ(kafka_error::UnknownTopicOrPartition, ec);
-
-    
-    log()->debug("Valid topic, non-existant partition");
-    ec = client_->check_topic_partition_leader_available("test", 128);
-
-    ASSERT_EQ(kafka_error::UnknownTopicOrPartition, ec);
-
-    log()->debug("Disconnected brokers");
-    std::system("cd tests/functional && docker-compose -p synkafka kill");
-
-    // Now even the valid one shoud fail with network error
-    // Except that if we hit same broker as before, it will seem OK since we don't actually
-    // send a message. We *could* test a different good partition here but the mapping is not
-    // fixed and so test would ne non-deterministic based on whether or not leader happened to be the same
-    // as leader for partition 0 above.
-    // Instead we'll try get another one that is unknown, which will force a new meta data refresh which should
-    // fail with network error, we should be told that network error occured NOT just that the partition is unknown
-    ec = client_->check_topic_partition_leader_available("foobar", 98);
-
-    // bring back cluster before we assert so we don't leave it broken for next test run if we fail
-    std::system("cd tests/functional && docker-compose -p synkafka start");
-
-    ASSERT_EQ(synkafka_error::network_fail, ec)
-        << "Got error: " << ec.message();
-
-    // Fudgy... if we try to reconnect too soon, it seems to fail - kafka brokers take a while to boot or something
-    // after docker container is started.
-    // This test actually works reliably for me with just 1 or 2 seconds pause sine we already have meta data and we only
-    // check we can open TCP connection below. But subsequent tests in this file break since the cluster has not yet respolved
-    // it's various leadership elections and discovered other brokers for some seconds after they all come online.
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-
-    log()->debug("Reconnected brokers");
-    ec = client_->check_topic_partition_leader_available("test", 0);
-
-    ASSERT_FALSE(ec) << ec.message();
-}
-
 TEST_F(ProducerClientTest, BasicProducing)
 {
     auto m = make_message_set();
@@ -235,7 +190,7 @@ TEST_F(ProducerClientTest, GZIPProducing)
     // woud also break if we ever try parallelize or run multiple tests at same time.
     // For now though it's a good sanity check in standalone test environment.
     auto messages = m.get_messages();
-    auto lines = get_last_n_messages("test", 0, 1); // Only fetch last 1 offset which shuld be compresed message with all 10 items
+    auto lines = get_last_n_messages("test", 0, 1); // Only fetch last 1 offset which shuld be compressed message with all 10 items
                                                     // this is not how I understand kafka offsets to work but seems to be how the simple
                                                     // consumer actually works in practice
     ASSERT_EQ(messages.size(), lines.size());
@@ -259,7 +214,7 @@ TEST_F(ProducerClientTest, SnappyProducing)
     // woud also break if we ever try parallelize or run multiple tests at same time.
     // For now though it's a good sanity check in standalone test environment.
     auto messages = m.get_messages();
-    auto lines = get_last_n_messages("test", 0, 1); // Only fetch last 1 offset which shuld be compresed message with all 10 items
+    auto lines = get_last_n_messages("test", 0, 1); // Only fetch last 1 offset which shuld be compressed message with all 10 items
                                                     // this is not how I understand kafka offsets to work but seems to be how the simple
                                                     // consumer actually works in practice
     ASSERT_EQ(messages.size(), lines.size());
@@ -322,6 +277,12 @@ TEST_F(ProducerClientTest, ParallelProduce)
     std::cout << "\t> Batches produced: " << batches_produced << ", messages: " << (batch_size * batches_produced) << std::endl;
 }
 
+// Tests that mess with cluster go last.
+// crude but no (sane) amount of sleeping can reliably
+// gaurantee tests running after we fail nodes and bring them back actually pass
+// This gaurnatees nothing either, just makes it more likely in practice that cluster had
+// time to heal between runs.
+
 TEST_F(ProducerClientTest, ProduceFailover)
 {
     auto m = make_message_set();
@@ -364,4 +325,52 @@ TEST_F(ProducerClientTest, ProduceFailover)
 
     log()->debug("Reconnecting broker " + broker_name);
     std::system(std::string("cd tests/functional && docker-compose -p synkafka start " + broker_name).c_str());
+}
+
+TEST_F(ProducerClientTest, PartitionAvailability)
+{
+    log()->debug("Existant topic/partition");
+
+    auto ec = client_->check_topic_partition_leader_available("test", 0);
+
+    ASSERT_FALSE(ec) << ec.message();
+
+
+    log()->debug("Non-existant topic/partition");
+    ec = client_->check_topic_partition_leader_available("foobar", 0);
+
+    ASSERT_EQ(kafka_error::UnknownTopicOrPartition, ec);
+
+    
+    log()->debug("Valid topic, non-existant partition");
+    ec = client_->check_topic_partition_leader_available("test", 128);
+
+    ASSERT_EQ(kafka_error::UnknownTopicOrPartition, ec);
+
+    log()->debug("Disconnected brokers");
+    std::system("cd tests/functional && docker-compose -p synkafka kill");
+
+    // Now even the valid one shoud fail with network error
+    // Except that if we hit same broker as before, it will seem OK since we don't actually
+    // send a message. We *could* test a different good partition here but the mapping is not
+    // fixed and so test would ne non-deterministic based on whether or not leader happened to be the same
+    // as leader for partition 0 above.
+    // Instead we'll try get another one that is unknown, which will force a new meta data refresh which should
+    // fail with network error, we should be told that network error occured NOT just that the partition is unknown
+    ec = client_->check_topic_partition_leader_available("foobar", 98);
+
+    // bring back cluster before we assert so we don't leave it broken for next test run if we fail
+    std::system("cd tests/functional && docker-compose -p synkafka start");
+
+    ASSERT_EQ(synkafka_error::network_fail, ec)
+        << "Got error: " << ec.message();
+
+    // Fudgy... if we try to reconnect too soon, it seems to fail - kafka brokers take a while to boot or something
+    // after docker container is started.
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+
+    log()->debug("Reconnected brokers");
+    ec = client_->check_topic_partition_leader_available("test", 0);
+
+    ASSERT_FALSE(ec) << ec.message();
 }

@@ -9,7 +9,7 @@ If you want a C/C++ Kafka client use [librdkafka](https://github.com/edenhill/li
 This library is **incomplete** and potentially **slow**.
 
 It's purpose is as a low-level, simplistic implementation of the Kafka 0.8 (producer) protocol which allows
-specific use-cases more control over how they produce and the transactional/error handling semantics.
+specific use-cases more control over how they produce and their transactional/error handling semantics.
 
 The motivating case is wanting to write a [Facebook Scribe](https://github.com/facebookarchive/scribe) Store that writes to Kafka cluster in a similar
 way to an upstream Scribe server. This is very hard with an asynchronous API like librdkafka where you have
