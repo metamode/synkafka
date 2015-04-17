@@ -183,7 +183,7 @@ std::error_code ProducerClient::produce(const std::string& topic, int32_t partit
     	} else {
     		ec = resp.topics[0].partitions[0].err_code;
     	}
-    } 
+    }
 
    	if (ec) {
    		// All Kafka errors here are either transient or related to incorrect metadata
@@ -198,7 +198,7 @@ std::error_code ProducerClient::produce(const std::string& topic, int32_t partit
    			// actually worked otherwise we could be stuck in loop. For now just let client
    			// figure that out depending on what makes sense for them. We might need to expose
    			// meta refresh failures in that case?
-   			log()->warn("Metadata is stale broker ") << broker->get_config().node_id 
+   			log()->warn("Metadata is stale broker ") << broker->get_config().node_id
    				<< " is not leader for [" << topic << "," << partition_id << "]";
    			refresh_meta();
    		}
@@ -207,7 +207,7 @@ std::error_code ProducerClient::produce(const std::string& topic, int32_t partit
 
 	return make_error_code(synkafka_error::no_error);
 }
-	
+
 boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partition& p, bool refresh_meta)
 {
 	std::unique_lock<std::mutex> lk(mu_);
@@ -371,10 +371,10 @@ void ProducerClient::refresh_meta(int attempts)
 	{
 		std::lock_guard<std::mutex> lk(mu_);
 
-		// No error, clear last error 
+		// No error, clear last error
 		last_meta_error_ = make_error_code(synkafka_error::no_error);
 
-		std::set<int32_t> live_broker_ids; 
+		std::set<int32_t> live_broker_ids;
 
 		for (auto& broker : resp.brokers) {
 			live_broker_ids.insert(broker.node_id);
@@ -417,7 +417,7 @@ void ProducerClient::refresh_meta(int attempts)
 
 		for (auto& topic : resp.topics) {
 			for (auto& part : topic.partitions) {
-				new_map.emplace(Partition{topic.name, part.partition_id}, part.leader);
+				new_map.insert(std::make_pair(Partition{topic.name, part.partition_id}, part.leader));
 			}
 		}
 
