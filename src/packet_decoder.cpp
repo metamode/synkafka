@@ -21,6 +21,11 @@ PacketDecoder::PacketDecoder(shared_buffer_t buffer)
 	size_ = buff_->size();
 }
 
+PacketDecoder::PacketDecoder(PacketDecoder&& other)
+	: PacketCodec(std::move(other))
+	, buff_(std::move(other.buff_))
+{}
+
 void PacketDecoder::io(int8_t& value)
 {
 	if (!can_read(sizeof(int8_t))) return;

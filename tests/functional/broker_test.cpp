@@ -72,8 +72,8 @@ protected:
         test_0_not_leader_ = nullptr;
         test_0_not_replica_ = nullptr;
 
-        EXPECT_LT(0, meta_.brokers.size());
-        EXPECT_LT(0, meta_.topics.size());
+        EXPECT_LT(0ul, meta_.brokers.size());
+        EXPECT_LT(0ul, meta_.topics.size());
 
         for (auto& topic : meta_.topics) {
             if (topic.name == "test") {
@@ -172,9 +172,9 @@ protected:
 
             ASSERT_TRUE(decoder.ok()) << decoder.err_str();
 
-            EXPECT_EQ(1,                    resp.topics.size()) << " for batch " << i;
+            EXPECT_EQ(1ul,                  resp.topics.size()) << " for batch " << i;
             EXPECT_EQ("test",               resp.topics[0].name) << " for batch " << i;
-            EXPECT_EQ(1,                    resp.topics[0].partitions.size()) << " for batch " << i;
+            EXPECT_EQ(1ul,                  resp.topics[0].partitions.size()) << " for batch " << i;
             EXPECT_EQ(0,                    resp.topics[0].partitions[0].partition_id) << " for batch " << i;
             EXPECT_EQ(expected_err,         resp.topics[0].partitions[0].err_code) << " for batch " << i;
             ++i;

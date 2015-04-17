@@ -31,7 +31,7 @@ public:
 	// You must have your config in sync between Kafka and here - max message size
 	// is not reported in topic metadata and may result in messages being reject if you
 	// set a higher value. Kafka's defaut is 1000000 bytes so that is our default here too.
-	void set_max_message_size(int max_message_size);
+	void set_max_message_size(size_t max_message_size);
 
 	// Push another message onto the set, this will check the message for simple things that
 	// will get it rejected. If returned error code is non-zero then the message is NOT added
@@ -64,7 +64,7 @@ private:
 	void message_io(PacketCodec& p, Message& m, CompressionType& compression);
 
 	std::deque<Message> 	messages_;
-	int32_t					max_message_size_;
+	size_t					max_message_size_;
 	CompressionType  		compression_;
 	size_t					encoded_size_;
 
@@ -75,43 +75,5 @@ private:
 void kafka_proto_io(PacketCodec& p, MessageSet::Message& m);
 
 void kafka_proto_io(PacketCodec& p, MessageSet& ms);
-
-/*
-inline void kafka_proto_io(PacketCodec& p, Message& m)
-{
-	// 0.8.x protocol has 0 magic byte
-	int8_t magic = 0;
-
-	// Need to encode attributes
-	int8_t attributes = 0;
-
-	if (p.is_writer()) {
-		// Attributes only contains compression in lowest 2 bits in 0.8.x
-		attributes = static_cast<int8_t>(m.compression) & 0x3;
-	}
-
-	auto crc = p.start_crc();
-	p.io(magic);
-	p.io(attributes);
-
-	if (!p.is_writer()) {
-		// Attributes only contains compression in lowest 2 bits in 0.8.x
-		m.compression = static_cast<CompressionType>(attributes & 0x3);
-	}
-
-	p.io_bytes(m.key, COMP_None);
-	p.io_bytes(m.value, m.compression);
-	p.end_crc(crc);
-}
-
-
-struct MessageSet
-{
-	CompressionType  						compression;
-	std::deque<std::pair<int64_t, Message>> messages;
-};
-
-inline 
-*/
 
 }

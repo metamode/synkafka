@@ -18,7 +18,7 @@ void MessageSet::set_compression(CompressionType comp)
 	compression_ = comp;
 }
 
-void MessageSet::set_max_message_size(int max_message_size)
+void MessageSet::set_max_message_size(size_t max_message_size)
 {
 	max_message_size_ = max_message_size;
 }
@@ -106,6 +106,10 @@ size_t MessageSet::get_worst_case_compressed_size(size_t size) const
 	case COMP_Snappy:
 		return snappy::MaxCompressedLength(size);
 	}
+
+	// GCC is apparently not smart enough to realise we implemented case for every defined value of enum above
+	// this is unreachable but to save the "control reaches end of non-void function" warning...
+	return 0;
 }
 
 void kafka_proto_io(PacketCodec& p, MessageSet::Message& m)
@@ -202,7 +206,7 @@ void kafka_proto_io_impl(PacketCodec& p, MessageSet& ms, int32_t encoded_length)
 		// so only use it if it is
 		auto start_offset = p.get_cursor();
 
-		while (p.ok() && (encoded_length == -1 || (p.get_cursor() - start_offset) < encoded_length)) {
+		while (p.ok() && (encoded_length == -1 || (p.get_cursor() - start_offset) < static_cast<size_t>(encoded_length))) {
 			MessageSet::Message m;
 
 			p.io(m.offset);

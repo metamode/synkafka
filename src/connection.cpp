@@ -114,6 +114,9 @@ error_code Connection::connect()
 
 		return connect();
 	}
+
+	// Unreachable but gcc can't figure that out for some reason
+	return error_code();
 }
 
 // Enable the pseudo-keywords reenter, yield and fork.

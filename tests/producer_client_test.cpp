@@ -14,9 +14,9 @@ using namespace synkafka;
 TEST(ProducerClient, ParseBrokerString)
 {
     std::vector<std::tuple<std::string, std::deque<proto::Broker>>> cases = {
-        {std::string{"localhost:1234"}, std::deque<proto::Broker>{proto::Broker{0, "localhost", 1234}}},
-        {std::string{"localhost"}, std::deque<proto::Broker>{proto::Broker{0, "localhost", 9092}}},
-        {std::string{"kafka01,kafka02,kafka03:9000"}, std::deque<proto::Broker>{proto::Broker{0, "kafka01", 9092}, proto::Broker{0, "kafka02", 9092}, proto::Broker{0, "kafka03", 9000}}},
+        std::make_tuple(std::string{"localhost:1234"}, std::deque<proto::Broker>{proto::Broker{0, "localhost", 1234}}),
+        std::make_tuple(std::string{"localhost"}, std::deque<proto::Broker>{proto::Broker{0, "localhost", 9092}}),
+        std::make_tuple(std::string{"kafka01,kafka02,kafka03:9000"}, std::deque<proto::Broker>{proto::Broker{0, "kafka01", 9092}, proto::Broker{0, "kafka02", 9092}, proto::Broker{0, "kafka03", 9000}}),
     };
 
     for (auto& t : cases) {

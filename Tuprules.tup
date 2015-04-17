@@ -1,9 +1,5 @@
 CFLAGS += -Wall -std=c++11
 
-ifeq (@(TUP_PLATFORM),macosx)
-	CFLAGS += -stdlib=libc++
-endif 
-
 #CXX = gccfilter -c -a g++
 CXX = g++
 

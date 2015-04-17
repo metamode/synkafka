@@ -47,7 +47,7 @@ protected:
         auto now = std::chrono::high_resolution_clock::now();
         std::string now_str = std::to_string(now.time_since_epoch().count());
 
-        for (int i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             messages.push(now_str + ": This is a test message number "+std::to_string(i), "Key "+std::to_string(i), true);
         }
 
@@ -241,7 +241,7 @@ TEST_F(ProducerClientTest, ParallelProduce)
 
     size_t batch_size = 1000;
 
-    for (int i = 0; i < threads.size(); ++i) {
+    for (size_t i = 0; i < threads.size(); ++i) {
         threads[i] = std::thread([&](int partition){
             auto start = std::chrono::high_resolution_clock::now();
             auto now = std::chrono::high_resolution_clock::now();
@@ -267,7 +267,7 @@ TEST_F(ProducerClientTest, ParallelProduce)
         }, i);
     }
 
-    for (int i = 0; i < threads.size(); ++i) {
+    for (size_t i = 0; i < threads.size(); ++i) {
         threads[i].join();
     }
 

@@ -58,21 +58,21 @@ public:
 
 	bool ok() const { return err_ == ERR_NONE; };
 	err_t err() const { return err_; };
-	std::string err_str() const { return err_stream_.str(); };
+	std::string err_str() const { return err_stream_->str(); };
 
 	std::stringstream& set_err(err_t error)
 	{
 		err_ = error;
 		// Clear error message stream
-		err_stream_.str("");
-		err_stream_.clear();
+		err_stream_->str("");
+		err_stream_->clear();
 
-		return err_stream_;
+		return *err_stream_;
 	}
 
 protected:
 	// Protect default constructor as this should only be used derived from
-	PacketCodec() : err_(ERR_NONE), err_stream_(""), cursor_(0), size_(0) {}
+	PacketCodec() : err_(ERR_NONE), err_stream_(new std::stringstream("")), cursor_(0), size_(0) {}
 
 	// Called to "increment" cursor
 	// takes care of extending size_ if cursor is already at end before update
@@ -85,7 +85,9 @@ protected:
 	}
 
 	err_t				err_;
-	std::stringstream 	err_stream_;
+	// Pointer indirection due to gcc "feature": 
+	// http://stackoverflow.com/questions/12015899/
+	std::unique_ptr<std::stringstream> 	err_stream_;
 	size_t 				cursor_;
 	size_t				size_;
 };
@@ -135,6 +137,13 @@ class PacketDecoder : public PacketCodec
 {
 public:
 	explicit PacketDecoder(shared_buffer_t);
+
+	// Define move constructor otherwise GCC will treat it as implicitly deleted
+	// due to implicitly deleted copy constructor in std::stringstream member.
+	// Clang seems to handle this fine, I think due to 
+	// http://stackoverflow.com/questions/20608662/why-is-the-move-constructor-neither-declared-nor-deleted-with-clang
+	PacketDecoder(const PacketDecoder* other) = delete;
+	PacketDecoder(PacketDecoder&& other);
 
 	void io(int8_t& value) override;
 	void io(int16_t& value) override;

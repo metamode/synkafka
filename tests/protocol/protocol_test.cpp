@@ -85,34 +85,34 @@ TEST(Protocol, ResponseHeaderCodec)
 }
 
 // Message test cases
-std::vector<std::tuple<MessageSet::Message, slice>> g_messageTestCases = {
-	{MessageSet::Message{"", "test message", 0, COMP_None} // construct message with value only
-    ,slice("\xa6\xe0\xcd\x8d" // crc32
-           "\x00\x00" // Magic + attributes
-           "\xFF\xFF\xFF\xFF" // Null byte key (-1)
-           "\x00\x00\x00\x0c" // 12 byte value
-           "test message"
-          ,26
-          )
-	},
-	{MessageSet::Message{"test key", "test message", 0, COMP_None} // construct message with value only
-    ,slice("\xb5\x55\x94\x26" // crc32
-           "\x00\x00" // Magic + attributes
-           "\x00\x00\x00\x08" // 8 byte key
-           "test key"
-           "\x00\x00\x00\x0c" // 12 byte value
-           "test message"
-          ,34
-          )
-	},
-	{MessageSet::Message{"", "", 0, COMP_None} // empty
-    ,slice("\xa7\xec\x68\x03" // crc32
-           "\x00\x00" // Magic + attributes
-           "\xFF\xFF\xFF\xFF" // Null byte key -1
-           "\xFF\xFF\xFF\xFF" // Null byte value -1
-          ,14
-          )
-	},
+std::vector<std::tuple<MessageSet::Message, slice>> g_messageTestCases {
+	std::make_tuple(MessageSet::Message{"", "test message", 0, COMP_None} // construct message with value only
+    			   ,slice("\xa6\xe0\xcd\x8d" // crc32
+    			          "\x00\x00" // Magic + attributes
+    			          "\xFF\xFF\xFF\xFF" // Null byte key (-1)
+    			          "\x00\x00\x00\x0c" // 12 byte value
+    			          "test message"
+    			         ,26
+    			         )
+				   ),
+	std::make_tuple(MessageSet::Message{"test key", "test message", 0, COMP_None} // construct message with value only
+    			   ,slice("\xb5\x55\x94\x26" // crc32
+          				  "\x00\x00" // Magic + attributes
+          				  "\x00\x00\x00\x08" // 8 byte key
+          				  "test key"
+          				  "\x00\x00\x00\x0c" // 12 byte value
+          				  "test message"
+          				 ,34
+          				 )
+	),
+	std::make_tuple(MessageSet::Message{"", "", 0, COMP_None} // empty
+    			   ,slice("\xa7\xec\x68\x03" // crc32
+          		          "\x00\x00" // Magic + attributes
+          		          "\xFF\xFF\xFF\xFF" // Null byte key -1
+          		          "\xFF\xFF\xFF\xFF" // Null byte value -1
+          		         ,14
+          		         )
+	),
 };
 
 TEST(Protocol, MessageCodec) 
@@ -322,22 +322,25 @@ TEST(Protocol, MessageSetCodecSnappy)
 TEST(Protocol, TopicMetadataRequestCodec)
 {
 	std::vector<std::tuple<proto::TopicMetadataRequest, slice>> test_cases = {
-		{proto::TopicMetadataRequest{{"one", "two", "three"}}
-		,slice("\x00\x00\x00\x03"
-			   "\x00\x03""one"
-			   "\x00\x03""two"
-			   "\x00\x05""three"
-			  ,21)
-		},		
-		{proto::TopicMetadataRequest{{}}
-		,slice("\x00\x00\x00\x00"
-			  ,4)
-		},		
-		{proto::TopicMetadataRequest{{"singleton"}}
-		,slice("\x00\x00\x00\x01"
-			   "\x00\x09""singleton"
-			  ,15)
-		},
+		std::make_tuple(proto::TopicMetadataRequest{{"one", "two", "three"}}
+					   ,slice("\x00\x00\x00\x03"
+					   	      "\x00\x03""one"
+					   	      "\x00\x03""two"
+					   	      "\x00\x05""three"
+					   	     ,21
+					   	     )
+					   ),		
+		std::make_tuple(proto::TopicMetadataRequest{{}}
+					   ,slice("\x00\x00\x00\x00"
+			  				 ,4
+			  				 )
+					   ),		
+		std::make_tuple(proto::TopicMetadataRequest{{"singleton"}}
+					   ,slice("\x00\x00\x00\x01"
+			   				  "\x00\x09""singleton"
+			  				 ,15
+			  				 )
+					   ),
 	};
 
 	for (auto& t : test_cases) {
@@ -371,12 +374,12 @@ TEST(Protocol, TopicMetadataRequestCodec)
 TEST(Protocol, BrokerCodec)
 {
 	std::vector<std::tuple<proto::Broker, slice>> test_cases = {
-		{proto::Broker{1, "kafka01", 9092}
-		,slice("\x00\x00\x00\x01" // node id
-			   "\x00\x07""kafka01"
-			   "\x00\x00\x23\x84"
-			  ,17)
-		},
+		std::make_tuple(proto::Broker{1, "kafka01", 9092}
+					   ,slice("\x00\x00\x00\x01" // node id
+					   	      "\x00\x07""kafka01"
+					   	      "\x00\x00\x23\x84"
+					   	     ,17)
+					   ),
 	};
 
 	for (auto& t : test_cases) {
@@ -411,107 +414,108 @@ TEST(Protocol, BrokerCodec)
 
 TEST(Protocol, MetadataResponseCodec)
 {
-	std::vector<std::tuple<proto::MetadataResponse, slice>> test_cases = {
-		{proto::MetadataResponse{{{1, "kafka01", 9092},{2, "kafka02", 9092}} // brokers
-								,{{kafka_error::NoError
-								  ,"foo" // Topic name
-								  ,{{kafka_error::NoError
-								  	,0 // partitionid
-								  	,1 // leader
-								  	,{1,2} // replicas
-								  	,{1,2} // isr
-								  	}
-								   ,{kafka_error::NoError
-								  	,1 // partitionid
-								  	,2 // leader
-								  	,{2,1} // replicas
-								  	,{2,1} // isr
-								  	}
-								   ,{kafka_error::LeaderNotAvailable
-								  	,2 // partitionid
-								  	,3 // leader
-								  	,{3,1} // replicas
-								  	,{1} // isr
-								  	}
-								   } // Partitions
-								  }
-								 ,{kafka_error::NoError
-								  ,"bar" // Topic name
-								  ,{{kafka_error::NoError
-								  	,0 // partitionid
-								  	,1 // leader
-								  	,{1,2} // replicas
-								  	,{1,2} // isr
-								  	}
-								   ,{kafka_error::NoError
-								  	,1 // partitionid
-								  	,2 // leader
-								  	,{2,1} // replicas
-								  	,{2} // isr
-								  	}
-								   } // Partitions
-								  }
-								 } // topics 
-								}
-		,slice("\x00\x00\x00\x02" // 2 brokers in list
-			       "\x00\x00\x00\x01" // Broker 1 id
-			   	   "\x00\x07""kafka01" // broker 1 host
-			       "\x00\x00\x23\x84" // broker 1 port
-			       "\x00\x00\x00\x02" // Broker 2 id
-			   	   "\x00\x07""kafka02" // broker 2 host
-			       "\x00\x00\x23\x84" // broker 2 port
-			   "\x00\x00\x00\x02" // 2 topics in list
-			   	   "\x00\x00" // topic 1 err_code
-			   	   "\x00\x03""foo" // topic 1 name
-			   	   "\x00\x00\x00\x03" // 3 partitions in list
-			   	       "\x00\x00" // partition 1 err_code
-			   	       "\x00\x00\x00\x00" // partition 1 id
-			   	       "\x00\x00\x00\x01" // partition 1 leader
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 1 replica list
-			   	           "\x00\x00\x00\x01" // replica 1
-			   	           "\x00\x00\x00\x02" // replica 2
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 1 isr list
-			   	           "\x00\x00\x00\x01" // replica 1
-			   	           "\x00\x00\x00\x02" // replica 2
-			   	       "\x00\x00" // partition 2 err_code
-			   	       "\x00\x00\x00\x01" // partition 2 id
-			   	       "\x00\x00\x00\x02" // partition 2 leader
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 2 replica list
-			   	           "\x00\x00\x00\x02" // replica 1
-			   	           "\x00\x00\x00\x01" // replica 2
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 2 isr list
-			   	           "\x00\x00\x00\x02" // replica 1
-			   	           "\x00\x00\x00\x01" // replica 2
-			   	       "\x00\x05" // partition 3 err_code
-			   	       "\x00\x00\x00\x02" // partition 3 id
-			   	       "\x00\x00\x00\x03" // partition 3 leader
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 3 replica list
-			   	           "\x00\x00\x00\x03" // replica 1
-			   	           "\x00\x00\x00\x01" // replica 2
-			   	       "\x00\x00\x00\x01" // 1 elements in partition 3 isr list
-			   	           "\x00\x00\x00\x01" // replica 2
-			   	   "\x00\x00" // topic 2 err_code
-			   	   "\x00\x03""bar" // topic 2 name
-			   	   "\x00\x00\x00\x02" // 2 partitions in list
-			   	       "\x00\x00" // partition 1 err_code
-			   	       "\x00\x00\x00\x00" // partition 1 id
-			   	       "\x00\x00\x00\x01" // partition 1 leader
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 1 replica list
-			   	           "\x00\x00\x00\x01" // replica 1
-			   	           "\x00\x00\x00\x02" // replica 2
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 1 isr list
-			   	           "\x00\x00\x00\x01" // replica 1
-			   	           "\x00\x00\x00\x02" // replica 2
-			   	       "\x00\x00" // partition 2 err_code
-			   	       "\x00\x00\x00\x01" // partition 2 id
-			   	       "\x00\x00\x00\x02" // partition 2 leader
-			   	       "\x00\x00\x00\x02" // 2 elements in partition 2 replica list
-			   	           "\x00\x00\x00\x02" // replica 1
-			   	           "\x00\x00\x00\x01" // replica 2
-			   	       "\x00\x00\x00\x01" // 1 elements in partition 2 isr list
-			   	           "\x00\x00\x00\x02" // replica 1
-			  ,226)
-		},
+	std::vector<std::tuple<proto::MetadataResponse, slice>> test_cases {
+		std::make_tuple(proto::MetadataResponse{{{1, "kafka01", 9092},{2, "kafka02", 9092}} // brokers
+									    	   ,{{kafka_error::NoError
+									    	     ,"foo" // Topic name
+									    	     ,{{kafka_error::NoError
+									    	     	,0 // partitionid
+									    	     	,1 // leader
+									    	     	,{1,2} // replicas
+									    	     	,{1,2} // isr
+									    	     	}
+									    	      ,{kafka_error::NoError
+									    	     	,1 // partitionid
+									    	     	,2 // leader
+									    	     	,{2,1} // replicas
+									    	     	,{2,1} // isr
+									    	     	}
+									    	      ,{kafka_error::LeaderNotAvailable
+									    	     	,2 // partitionid
+									    	     	,3 // leader
+									    	     	,{3,1} // replicas
+									    	     	,{1} // isr
+									    	     	}
+									    	      } // Partitions
+									    	     }
+									    	    ,{kafka_error::NoError
+									    	     ,"bar" // Topic name
+									    	     ,{{kafka_error::NoError
+									    	     	,0 // partitionid
+									    	     	,1 // leader
+									    	     	,{1,2} // replicas
+									    	     	,{1,2} // isr
+									    	     	}
+									    	      ,{kafka_error::NoError
+									    	     	,1 // partitionid
+									    	     	,2 // leader
+									    	     	,{2,1} // replicas
+									    	     	,{2} // isr
+									    	     	}
+									    	      } // Partitions
+									    	     }
+									    	    } // topics 
+									    	   }
+					   ,slice("\x00\x00\x00\x02" // 2 brokers in list
+					   	           "\x00\x00\x00\x01" // Broker 1 id
+					   	       	   "\x00\x07""kafka01" // broker 1 host
+					   	           "\x00\x00\x23\x84" // broker 1 port
+					   	           "\x00\x00\x00\x02" // Broker 2 id
+					   	       	   "\x00\x07""kafka02" // broker 2 host
+					   	           "\x00\x00\x23\x84" // broker 2 port
+					   	       "\x00\x00\x00\x02" // 2 topics in list
+					   	       	   "\x00\x00" // topic 1 err_code
+					   	       	   "\x00\x03""foo" // topic 1 name
+					   	       	   "\x00\x00\x00\x03" // 3 partitions in list
+					   	       	       "\x00\x00" // partition 1 err_code
+					   	       	       "\x00\x00\x00\x00" // partition 1 id
+					   	       	       "\x00\x00\x00\x01" // partition 1 leader
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 1 replica list
+					   	       	           "\x00\x00\x00\x01" // replica 1
+					   	       	           "\x00\x00\x00\x02" // replica 2
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 1 isr list
+					   	       	           "\x00\x00\x00\x01" // replica 1
+					   	       	           "\x00\x00\x00\x02" // replica 2
+					   	       	       "\x00\x00" // partition 2 err_code
+					   	       	       "\x00\x00\x00\x01" // partition 2 id
+					   	       	       "\x00\x00\x00\x02" // partition 2 leader
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 2 replica list
+					   	       	           "\x00\x00\x00\x02" // replica 1
+					   	       	           "\x00\x00\x00\x01" // replica 2
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 2 isr list
+					   	       	           "\x00\x00\x00\x02" // replica 1
+					   	       	           "\x00\x00\x00\x01" // replica 2
+					   	       	       "\x00\x05" // partition 3 err_code
+					   	       	       "\x00\x00\x00\x02" // partition 3 id
+					   	       	       "\x00\x00\x00\x03" // partition 3 leader
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 3 replica list
+					   	       	           "\x00\x00\x00\x03" // replica 1
+					   	       	           "\x00\x00\x00\x01" // replica 2
+					   	       	       "\x00\x00\x00\x01" // 1 elements in partition 3 isr list
+					   	       	           "\x00\x00\x00\x01" // replica 2
+					   	       	   "\x00\x00" // topic 2 err_code
+					   	       	   "\x00\x03""bar" // topic 2 name
+					   	       	   "\x00\x00\x00\x02" // 2 partitions in list
+					   	       	       "\x00\x00" // partition 1 err_code
+					   	       	       "\x00\x00\x00\x00" // partition 1 id
+					   	       	       "\x00\x00\x00\x01" // partition 1 leader
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 1 replica list
+					   	       	           "\x00\x00\x00\x01" // replica 1
+					   	       	           "\x00\x00\x00\x02" // replica 2
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 1 isr list
+					   	       	           "\x00\x00\x00\x01" // replica 1
+					   	       	           "\x00\x00\x00\x02" // replica 2
+					   	       	       "\x00\x00" // partition 2 err_code
+					   	       	       "\x00\x00\x00\x01" // partition 2 id
+					   	       	       "\x00\x00\x00\x02" // partition 2 leader
+					   	       	       "\x00\x00\x00\x02" // 2 elements in partition 2 replica list
+					   	       	           "\x00\x00\x00\x02" // replica 1
+					   	       	           "\x00\x00\x00\x01" // replica 2
+					   	       	       "\x00\x00\x00\x01" // 1 elements in partition 2 isr list
+					   	       	           "\x00\x00\x00\x02" // replica 1
+					   	     ,226
+					   	     )
+					   ),
 	};
 
 	for (auto& t : test_cases) {
@@ -582,62 +586,63 @@ TEST(Protocol, ProduceRequestCodec)
 	ms1.push("test message", "");
 
 
-	std::vector<std::tuple<proto::ProduceRequest, slice>> test_cases = {
-		{proto::ProduceRequest{1 // required acks
-							  ,1000 // timeout
-							  ,{proto::ProduceTopic{"foo"
-					                               ,{proto::ProducePartition{0
-										                                    ,ms1
-					                                					    }
-					                                ,proto::ProducePartition{1
-										                                    ,ms1
-					                                 					    }
-							                        }
-							                       }
-							   }
-							  }
+	std::vector<std::tuple<proto::ProduceRequest, slice>> test_cases {
+		std::make_tuple(proto::ProduceRequest{1 // required acks
+							  				 ,1000 // timeout
+							  				 ,{proto::ProduceTopic{"foo"
+					          				                      ,{proto::ProducePartition{0
+											 			                                    ,ms1
+					          				                       					    }
+					          				                       ,proto::ProducePartition{1
+											 			                                    ,ms1
+					          				                        					    }
+							  				                       }
+							  				                      }
+							  				  }
+							  				 }
 
-		,slice("\x00\x01" // required acks
-			   "\x00\x00\x03\xe8" // timeout
-			   "\x00\x00\x00\x01" // 1 topic in list
-			   	   "\x00\x03""foo" // topic 1 name
-			   	   "\x00\x00\x00\x02" // 2 partition batches in list
-			   	       "\x00\x00\x00\x00" // partition 1 id
-			   	       "\x00\x00\x00\x4c" // partition 1 message set size (76 bytes)
-			   	           "" // Message set begins
-			   	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
-		        		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
-		        		       "\xa6\xe0\xcd\x8d" // crc32
-				               "\x00\x00" // Magic + attributes
-				               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
-				               "\x00\x00\x00\x0c" // 12 byte value
-				               "test message"
-			   	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
-		        		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
-		        		       "\xa6\xe0\xcd\x8d" // crc32
-				               "\x00\x00" // Magic + attributes
-				               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
-				               "\x00\x00\x00\x0c" // 12 byte value
-				               "test message"
-			   	       "\x00\x00\x00\x01" // partition 2 id
-			   	       "\x00\x00\x00\x4c" // partition 2 message set size (76 bytes)
-			   	           "" // Message set begins
-			   	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
-		        		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
-		        		       "\xa6\xe0\xcd\x8d" // crc32
-				               "\x00\x00" // Magic + attributes
-				               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
-				               "\x00\x00\x00\x0c" // 12 byte value
-				               "test message"
-			   	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
-		        		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
-		        		       "\xa6\xe0\xcd\x8d" // crc32
-				               "\x00\x00" // Magic + attributes
-				               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
-				               "\x00\x00\x00\x0c" // 12 byte value
-				               "test message"
-			  ,187)
-		},
+					   ,slice("\x00\x01" // required acks
+					   	      "\x00\x00\x03\xe8" // timeout
+					   	      "\x00\x00\x00\x01" // 1 topic in list
+					   	      	   "\x00\x03""foo" // topic 1 name
+					   	      	   "\x00\x00\x00\x02" // 2 partition batches in list
+					   	      	       "\x00\x00\x00\x00" // partition 1 id
+					   	      	       "\x00\x00\x00\x4c" // partition 1 message set size (76 bytes)
+					   	      	           "" // Message set begins
+					   	      	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
+					              		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
+					              		       "\xa6\xe0\xcd\x8d" // crc32
+					   	   	               "\x00\x00" // Magic + attributes
+					   	   	               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
+					   	   	               "\x00\x00\x00\x0c" // 12 byte value
+					   	   	               "test message"
+					   	      	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
+					              		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
+					              		       "\xa6\xe0\xcd\x8d" // crc32
+					   	   	               "\x00\x00" // Magic + attributes
+					   	   	               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
+					   	   	               "\x00\x00\x00\x0c" // 12 byte value
+					   	   	               "test message"
+					   	      	       "\x00\x00\x00\x01" // partition 2 id
+					   	      	       "\x00\x00\x00\x4c" // partition 2 message set size (76 bytes)
+					   	      	           "" // Message set begins
+					   	      	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
+					              		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
+					              		       "\xa6\xe0\xcd\x8d" // crc32
+					   	   	               "\x00\x00" // Magic + attributes
+					   	   	               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
+					   	   	               "\x00\x00\x00\x0c" // 12 byte value
+					   	   	               "test message"
+					   	      	           "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
+					              		   "\x00\x00\x00\x1a" 				  // 26 bytes for message
+					              		       "\xa6\xe0\xcd\x8d" // crc32
+					   	   	               "\x00\x00" // Magic + attributes
+					   	   	               "\xFF\xFF\xFF\xFF" // Null byte key (-1)
+					   	   	               "\x00\x00\x00\x0c" // 12 byte value
+					   	   	               "test message"
+					   	     ,187
+					   	     )
+					   ),
 	};
 
 	for (auto& t : test_cases) {
@@ -693,41 +698,41 @@ TEST(Protocol, ProduceRequestCodec)
 TEST(Protocol, ProduceResponseCodec)
 {
 	std::vector<std::tuple<proto::ProduceResponse, slice>> test_cases = {
-		{proto::ProduceResponse{{proto::ProduceResponseTopic{"foo"
-								 						    ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
-							 							   	 ,proto::ProduceResponsePartition{1, kafka_error::NoError, 145236589}
-														   	 ,proto::ProduceResponsePartition{2, kafka_error::NoError, 135426589}
-														     }
-														    }
-							    ,proto::ProduceResponseTopic{"bar"
-														    ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
-														   	 ,proto::ProduceResponsePartition{1, kafka_error::NotLeaderForPartition, 0}
-														     }
-														    }
-							   }
-							  }
-		,slice("\x00\x00\x00\x02" // 2 topics
-			   	   "\x00\x03""foo" // topic 1 name
-			   	   "\x00\x00\x00\x03" // 3 partitions
-			   	       "\x00\x00\x00\x00" // partition 1 id
-			   	       "\x00\x00" // partition 1 err_code
-			   	       "\x00\x00\x00\x00\x07\x5b\xcd\x15" // Null Offset
-			   	       "\x00\x00\x00\x01" // partition 2 id
-			   	       "\x00\x00" // partition 1 err_code
-			   	       "\x00\x00\x00\x00\x08\xa8\x22\x6d" // Null Offset
-			   	       "\x00\x00\x00\x02" // partition 3 id
-			   	       "\x00\x00" // partition 1 err_code
-			   	       "\x00\x00\x00\x00\x08\x12\x72\x1d" // Null Offset
-			   	   "\x00\x03""bar" // topic 2 name
-			   	   "\x00\x00\x00\x02" // 2 partitions
-			   	       "\x00\x00\x00\x00" // partition 1 id
-			   	       "\x00\x00" // partition 1 err_code
-			   	       "\x00\x00\x00\x00\x07\x5b\xcd\x15" // Null Offset
-			   	       "\x00\x00\x00\x01" // partition 2 id
-			   	       "\x00\x06" // partition 1 err_code
-			   	       "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
-			  ,92)
-		},
+		std::make_tuple(proto::ProduceResponse{{proto::ProduceResponseTopic{"foo"
+												 						    ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
+											 							   	 ,proto::ProduceResponsePartition{1, kafka_error::NoError, 145236589}
+																		   	 ,proto::ProduceResponsePartition{2, kafka_error::NoError, 135426589}
+																		     }
+																		    }
+											    ,proto::ProduceResponseTopic{"bar"
+																		    ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
+																		   	 ,proto::ProduceResponsePartition{1, kafka_error::NotLeaderForPartition, 0}
+																		     }
+																		    }
+											   }
+											  }
+						,slice("\x00\x00\x00\x02" // 2 topics
+							   	   "\x00\x03""foo" // topic 1 name
+							   	   "\x00\x00\x00\x03" // 3 partitions
+							   	       "\x00\x00\x00\x00" // partition 1 id
+							   	       "\x00\x00" // partition 1 err_code
+							   	       "\x00\x00\x00\x00\x07\x5b\xcd\x15" // Null Offset
+							   	       "\x00\x00\x00\x01" // partition 2 id
+							   	       "\x00\x00" // partition 1 err_code
+							   	       "\x00\x00\x00\x00\x08\xa8\x22\x6d" // Null Offset
+							   	       "\x00\x00\x00\x02" // partition 3 id
+							   	       "\x00\x00" // partition 1 err_code
+							   	       "\x00\x00\x00\x00\x08\x12\x72\x1d" // Null Offset
+							   	   "\x00\x03""bar" // topic 2 name
+							   	   "\x00\x00\x00\x02" // 2 partitions
+							   	       "\x00\x00\x00\x00" // partition 1 id
+							   	       "\x00\x00" // partition 1 err_code
+							   	       "\x00\x00\x00\x00\x07\x5b\xcd\x15" // Null Offset
+							   	       "\x00\x00\x00\x01" // partition 2 id
+							   	       "\x00\x06" // partition 1 err_code
+							   	       "\x00\x00\x00\x00\x00\x00\x00\x00" // Null Offset
+							  ,92)
+						),
 	};
 
 	for (auto& t : test_cases) {
