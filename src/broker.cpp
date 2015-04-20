@@ -33,8 +33,8 @@ Broker::~Broker()
 }
 
 void Broker::close()
-{	
-	conn_.close();
+{
+ 	conn_.close();
 }
 
 std::future<PacketDecoder> Broker::call(int16_t api_key, std::unique_ptr<PacketEncoder> request_packet)

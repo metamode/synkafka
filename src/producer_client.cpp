@@ -334,7 +334,7 @@ void ProducerClient::refresh_meta(int attempts)
 			}
 		}
 
-		if (broker == nullptr) {
+		if (broker == nullptr || broker->is_closed()) {
 			// Still not connected? not much more we can do
 			return;
 		}

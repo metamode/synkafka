@@ -51,7 +51,7 @@ public:
 			return make_error_code(synkafka_error::network_timeout);
 	    } else {
 		    // OK we got a result, decode it
-		    try 
+		    try
 		    {
 		    	auto decoder = decoder_future.get();
 			    decoder.io(resp);

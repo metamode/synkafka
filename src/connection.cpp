@@ -32,6 +32,9 @@ error_code Connection::impl::close(error_code ec)
 		log()->warn() << "Connection to " << dns_query_ << " closed with error: " << ec.message();
 	} else {
 		log()->debug() << "Connection to " << dns_query_ << " closed";
+		// Must set an error otherwise other threads waiting on connect will just see ec_ is not
+		// an error and assume that connection is fine.
+		ec = make_error_code(boost::system::errc::connection_aborted);
 	}
 
 	ec_ = ec;
@@ -126,8 +129,11 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
 {
 	if (ec == boost::asio::error::operation_aborted) {
 		// Failing due to operation being aborted - i.e. socket/resolver was closed externally
-		// don't re-enter coroutine in this case as we can't make progress (no point retrying 
+		// don't re-enter coroutine in this case as we can't make progress (no point retrying
 		// more endpoints for instance)
+		// Ensure we signal waiters though and properly close ourselves in case this was triggered
+		// by some external destructor for the socket/client etc.
+		close(ec);
 		return;
 	}
 
@@ -145,7 +151,7 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
 		}
 
 		while (endpoint_iterator != tcp::resolver::iterator()) {
-			log()->debug() << *this << "coroutine(): async connect to " 
+			log()->debug() << *this << "coroutine(): async connect to "
 				<< endpoint_iterator->host_name()
 				<< ":" << endpoint_iterator->service_name();
 

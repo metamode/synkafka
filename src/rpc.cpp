@@ -74,7 +74,7 @@ shared_buffer_t RPC::get_recv_buffer()
 {
 	return response_buffer_;
 }
-	
+
 std::future<PacketDecoder> RPC::get_future()
 {
 	return response_promise_.get_future();
@@ -105,7 +105,7 @@ void RPCQueue::push(std::unique_ptr<RPC> rpc)
 {
 	// We need to keep single ownership of the RPC, but ASIO will make a copy
 	// of the argument as we pass it into the async on-strand method.
-	// shared_ptr has it's own issues (we can't take wonership back and transfer it)
+	// shared_ptr has it's own issues - we can't take ownership back and transfer it
 	// into the queue later since the transient copies ASIO makes will still try to delete the
 	// RPC after we've moved it into queue.
 	// So we keep it as a unique_ptr to here, then release it so it's not destroyed, and finally
@@ -120,10 +120,12 @@ void RPCQueue::push(std::unique_ptr<RPC> rpc)
 }
 
 void RPCQueue::stranded_push(RPC* rpc)
-{	
+{
 	if (should_increment_seq_on_push()) {
 		rpc->set_seq(pimpl_->next_seq_++);
 	}
+
+	DBG_LOG() << "Stranded Queue Push";
 
 	// Transfer the pointed to RPC, we are giving the queue ownership of the pointed to RPC again
 	pimpl_->q_.emplace_back(rpc);
@@ -148,12 +150,23 @@ void RPCQueue::fail_all(error_code ec)
 
 void RPCQueue::fail_all(std::error_code ec)
 {
-	while (auto rpc = next()) {
-		rpc->fail(ec);
-		pop();
-	}
+	// Make a local copy of the queue since as soon as we fail() RPC the calling
+	// thread might destruct the broker from under us which will invalidate pimpl_'s memory
+	// so do all the state mutations we need first, and only start failing things after that.
+	std::list<std::unique_ptr<RPC>> local_q;
+
+	std::swap(pimpl_->q_, local_q);
+
 	// Close (in case it isn't already closed due to boost error)
 	pimpl_->conn_.close();
+
+	// Now fail all of the RPCs. Not that failing first one might
+	// cause calling thread to destruct us, before we handle further ones,
+	// but that's OK since we kept a local copy of the RPCs and can continue
+	// to loop even if this queue and it's impl are destructed around our ears.
+	for (auto& rpc : local_q) {
+		rpc->fail(ec);
+	}
 }
 
 RPC* RPCQueue::next()
@@ -182,7 +195,7 @@ void RPCSendQueue::operator()(error_code ec, size_t length)
 	RPC* rpc = next();
 
 	if (!ec && !pimpl_->conn_.is_connected()) {
-		// Can't easily fall through to below code since 
+		// Can't easily fall through to below code since
 		// we have different error_code types from boost and std mismatched here
 		DBG_LOG() << "no connection, failing all";
 		fail_all(make_error_code(synkafka_error::network_fail));
@@ -249,7 +262,7 @@ void RPCRecvQueue::operator()(error_code ec, size_t length)
 				return;
 			}
 
-			DBG_LOG() << "recvd response length: " << response_len 
+			DBG_LOG() << "recvd response length: " << response_len
 				<< " (in " << length << " bytes)";
 
 			// Read that many more bytes
@@ -268,7 +281,7 @@ void RPCRecvQueue::operator()(error_code ec, size_t length)
 											  );
 
 				// Note that we re-entered after yield so response_len is initialised to 0 again
-				// but we are guaranteed that async_read either read the whole length we asked for or 
+				// but we are guaranteed that async_read either read the whole length we asked for or
 				// failed with an error which we would have caught above. So we can reset response_len from
 				// the number of bytes that were actually read.
 				// Tis' but a minor stain on the illusion of synchronous programming from this coroutine ;).
@@ -303,7 +316,7 @@ void RPCRecvQueue::operator()(error_code ec, size_t length)
 
 			rpc = next();
 
-			if (rpc) {				
+			if (rpc) {
 				// Reset loop variables otherwise we'll still be looking at
 				// previous rpc's buffers/decoder
 				buffer = rpc->get_recv_buffer();

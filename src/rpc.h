@@ -108,7 +108,7 @@ protected:
 		boost::asio::coroutine				coro_;
 	};
 
-	std::shared_ptr<Impl> pimpl_;	
+	std::shared_ptr<Impl> pimpl_;
 };
 
 class RPCSendQueue : public RPCQueue

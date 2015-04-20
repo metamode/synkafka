@@ -48,7 +48,7 @@ protected:
     }
 
     virtual void TearDown()
-    {    
+    {
         work_.reset(); // Exit asio thread
         io_service_.stop();
         asio_thread_.join();
@@ -141,7 +141,7 @@ protected:
                                      }
                                     };
 
-        
+
             auto enc = std::unique_ptr<PacketEncoder>(new PacketEncoder(512));
             enc->io(rq);
             ASSERT_TRUE(enc->ok());
@@ -264,7 +264,7 @@ TEST_F(BrokerTest, MetadataRequest)
     err = b->sync_call(rq, resp, 1000);
     ASSERT_FALSE(err)
         << "Request failed: " << err.message();
-    
+
     auto broker_num = get_env_int("KAFKA_BROKER_NUM");
 
     EXPECT_EQ(broker_num, resp.brokers.size());
@@ -280,17 +280,17 @@ TEST_F(BrokerTest, MetadataRequest)
 
 	// Rely on our test setup assigning node id based on port
 	EXPECT_EQ(get_env_string("KAFKA_1_HOST")
-				+ ":" + std::to_string(get_env_int("KAFKA_1_PORT")) 
+				+ ":" + std::to_string(get_env_int("KAFKA_1_PORT"))
 				+ ":" + std::to_string(get_env_int("KAFKA_1_PORT"))
 			 ,broker_list[0]
 			 );
    	EXPECT_EQ(get_env_string("KAFKA_2_HOST")
-				+ ":" + std::to_string(get_env_int("KAFKA_2_PORT")) 
+				+ ":" + std::to_string(get_env_int("KAFKA_2_PORT"))
 				+ ":" + std::to_string(get_env_int("KAFKA_2_PORT"))
 			 ,broker_list[1]
 			 );
    	EXPECT_EQ(get_env_string("KAFKA_3_HOST")
-				+ ":" + std::to_string(get_env_int("KAFKA_3_PORT")) 
+				+ ":" + std::to_string(get_env_int("KAFKA_3_PORT"))
 				+ ":" + std::to_string(get_env_int("KAFKA_3_PORT"))
 			 ,broker_list[2]
 			 );
@@ -362,4 +362,31 @@ TEST_F(BrokerTest, ProduceBatchPipelined)
 // these producing tests are mostly useful for pinpointing specific issues in simpler case than when testing the whole
 // client too.
 
+
+// Recreate segfault bug caused by Producer Client meta fetch allowing RPC call to be attermpted on a closed broker object
+TEST_F(BrokerTest, NoClosedBrokerSegfault)
+{
+    // Connect to unroutable IP
+    boost::shared_ptr<Broker> b(new Broker(io_service_, "192.0.2.0", get_env_int("KAFKA_1_PORT"), "test"));
+
+    b->set_connect_timeout(10);
+
+    auto ec = b->connect();
+
+    EXPECT_TRUE((bool)ec);
+
+    // Try making RPC call anyway, should fail, should not segfault
+    proto::TopicMetadataRequest rq;
+    proto::MetadataResponse resp;
+
+    ec = b->sync_call(rq, resp, 100);
+
+    // Should fail with network error
+    EXPECT_EQ(synkafka_error::network_fail, ec)
+        << "Expected timout err, got: " << ec.message();
+
+    // This test trivially passes even without fix, but it also segfaults after this assertion when things start being destructed and RPC
+    // callback fire.
+    // Hmm Heisenbug alert - this appears to work just fine in GDB without fix, but fails consistently outside of debugger.
+}
 
