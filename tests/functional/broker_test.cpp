@@ -265,7 +265,7 @@ TEST_F(BrokerTest, MetadataRequest)
     ASSERT_FALSE(err)
         << "Request failed: " << err.message();
 
-    auto broker_num = get_env_int("KAFKA_BROKER_NUM");
+    size_t broker_num = (size_t)get_env_int("KAFKA_BROKER_NUM");
 
     EXPECT_EQ(broker_num, resp.brokers.size());
 
@@ -296,15 +296,15 @@ TEST_F(BrokerTest, MetadataRequest)
 			 );
 
     // Expect one topic called test with 8 partitions...
-    EXPECT_EQ(1, resp.topics.size());
+    EXPECT_EQ(1ul, resp.topics.size());
     EXPECT_EQ("test", resp.topics[0].name);
-    EXPECT_EQ(8, resp.topics[0].partitions.size());
+    EXPECT_EQ(8ul, resp.topics[0].partitions.size());
 
     // Partitions should have 2 replicas
-    EXPECT_EQ(2, resp.topics[0].partitions[0].replicas.size());
+    EXPECT_EQ(2ul, resp.topics[0].partitions[0].replicas.size());
 
     // Partitions should have 2 in sync replicas
-    EXPECT_EQ(2, resp.topics[0].partitions[0].isr.size());
+    EXPECT_EQ(2ul, resp.topics[0].partitions[0].isr.size());
 }
 
 

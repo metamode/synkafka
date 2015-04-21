@@ -33,7 +33,7 @@ TEST(RPC, Encoding)
 
     auto buffers = rpc.encode_request();
 
-    ASSERT_EQ(2, buffers.size());
+    ASSERT_EQ(2ul, buffers.size());
 
     slice header_expected("\x00\x00\x00\x14" // i32 Length prefix of whole packet (16 header + 4 rpc)
                           "\x00\x03" // MetadataRequest api key

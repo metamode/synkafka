@@ -1,6 +1,6 @@
 #pragma once
 
-#include <atomic>
+#include <mutex>
 
 #include "spdlog/spdlog.h"
 
@@ -14,35 +14,34 @@ typedef spdlog::details::line_logger logger_t;
 inline std::shared_ptr<spdlog::logger> log() {
 
 	static auto log = spdlog::stdout_logger_mt("console");
-	static std::atomic_flag init_done = ATOMIC_FLAG_INIT;
+	static std::once_flag init_done;
 
-	if (!init_done.test_and_set()) {
-		// Was false so we are fist here
+	std::call_once(init_done, [&](){
 		auto level = getenv("LOG_LEVEL");
 		if (level == nullptr) {
 			log->set_level(spdlog::level::warn);
-		} else if (strcmp(level, "TRACE") == 0) {		
+		} else if (strcmp(level, "TRACE") == 0) {
 			log->set_level(spdlog::level::trace);
-		} else if (strcmp(level, "DEBUG") == 0) {		
+		} else if (strcmp(level, "DEBUG") == 0) {
 			log->set_level(spdlog::level::debug);
-		} else if (strcmp(level, "INFO") == 0) {		
+		} else if (strcmp(level, "INFO") == 0) {
 			log->set_level(spdlog::level::info);
-		} else if (strcmp(level, "NOTICE") == 0) {		
+		} else if (strcmp(level, "NOTICE") == 0) {
 			log->set_level(spdlog::level::notice);
-		} else if (strcmp(level, "WARN") == 0) {		
+		} else if (strcmp(level, "WARN") == 0) {
 			log->set_level(spdlog::level::warn);
-		} else if (strcmp(level, "ERR") == 0) {		
+		} else if (strcmp(level, "ERR") == 0) {
 			log->set_level(spdlog::level::err);
-		} else if (strcmp(level, "CRITICAL") == 0) {		
+		} else if (strcmp(level, "CRITICAL") == 0) {
 			log->set_level(spdlog::level::critical);
-		} else if (strcmp(level, "ALERT") == 0) {		
+		} else if (strcmp(level, "ALERT") == 0) {
 			log->set_level(spdlog::level::alert);
-		} else if (strcmp(level, "EMERG") == 0) {		
+		} else if (strcmp(level, "EMERG") == 0) {
 			log->set_level(spdlog::level::emerg);
-		} else if (strcmp(level, "OFF") == 0) {		
+		} else if (strcmp(level, "OFF") == 0) {
 			log->set_level(spdlog::level::off);
 		}
-	}
+	});
 
 	return log;
 }
