@@ -32,7 +32,7 @@ public:
 	virtual void io_bytes(std::string& value, CompressionType ctype) = 0;
 
 	// Special helpers to enable writing fields that rely on later data to be correct
-	// Start methods reservce spac ein buffer for final field and return the byte offset 
+	// Start methods reservce spac ein buffer for final field and return the byte offset
 	// into the buffer the field exists at.
 	// end_* methods caclulate the value of the field of the bytes between the start and
 	// current cursor and either write the value to buffer or check and raise error depending
@@ -85,7 +85,7 @@ protected:
 	}
 
 	err_t				err_;
-	// Pointer indirection due to gcc "feature": 
+	// Pointer indirection due to gcc "feature":
 	// http://stackoverflow.com/questions/12015899/
 	std::unique_ptr<std::stringstream> 	err_stream_;
 	size_t 				cursor_;
@@ -140,9 +140,9 @@ public:
 
 	// Define move constructor otherwise GCC will treat it as implicitly deleted
 	// due to implicitly deleted copy constructor in std::stringstream member.
-	// Clang seems to handle this fine, I think due to 
+	// Clang seems to handle this fine, I think due to
 	// http://stackoverflow.com/questions/20608662/why-is-the-move-constructor-neither-declared-nor-deleted-with-clang
-	PacketDecoder(const PacketDecoder* other) = delete;
+	PacketDecoder(const PacketDecoder& other) = delete;
 	PacketDecoder(PacketDecoder&& other);
 
 	void io(int8_t& value) override;

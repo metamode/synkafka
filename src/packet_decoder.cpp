@@ -16,6 +16,7 @@ namespace synkafka {
 PacketDecoder::PacketDecoder(shared_buffer_t buffer)
 	: PacketCodec()
 	, buff_(buffer)
+	, decompress_buffs_()
 {
 	// Assume whole buffer is full of readable content
 	size_ = buff_->size();
@@ -24,6 +25,7 @@ PacketDecoder::PacketDecoder(shared_buffer_t buffer)
 PacketDecoder::PacketDecoder(PacketDecoder&& other)
 	: PacketCodec(std::move(other))
 	, buff_(std::move(other.buff_))
+	, decompress_buffs_(std::move(other.decompress_buffs_))
 {}
 
 void PacketDecoder::io(int8_t& value)
@@ -185,7 +187,7 @@ void PacketDecoder::io_bytes(slice& value, CompressionType ctype)
 
 		// Move cursor to end of compressed bytes
 		cursor_ += len;
-	}	
+	}
 		break;
 
 	case COMP_Snappy:
@@ -197,7 +199,7 @@ void PacketDecoder::io_bytes(slice& value, CompressionType ctype)
 										  )) {
 			set_err(ERR_COMPRESS_FAIL)
 				<< "Failed Snappy GetUncompressedLength";
-			return;			
+			return;
 		}
 
 	    // Create a buffer for output that will live as long as the Decoder so
@@ -255,7 +257,7 @@ void   PacketDecoder::end_crc(size_t field_offset)
 
 	if (given_crc32 != calculated_crc32) {
 		set_err(ERR_CHECKSUM_FAIL)
-			<< "CRC32 did no match. Calculated: " << calculated_crc32 
+			<< "CRC32 did no match. Calculated: " << calculated_crc32
 			<< " expected " << given_crc32
 			<< " at message starting at offset " << field_offset
 			<< " with length " << cursor_ - field_offset;
