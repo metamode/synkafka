@@ -27,6 +27,7 @@ public:
     {
         try
         {
+
             io_service_.run();
             //std::cout << "ASIO THREAD EXITING NORMALLY" << std::endl;
         }

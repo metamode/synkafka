@@ -1,7 +1,0 @@
-include_rules
-
-CFLAGS += -I../../vendor/gtest/include -I../../vendor/gtest -I../../vendor/spdlog/include -I../../src
-
-: foreach *.cpp |> !cc |> {test_o}
-
-: {test_o} ../libgtest.a ../../src/*.o |> g++ $(CFLAGS)  -Bstatic -lz -lboost_system -lpthread %f -o %o |> synkafka_func_test

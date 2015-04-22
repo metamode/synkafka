@@ -1,3 +1,1 @@
-.tup
-build-*/*
-!build-*/tup.config
+bin

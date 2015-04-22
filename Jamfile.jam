@@ -1,0 +1,67 @@
+project synkafka
+    : requirements
+        <threading>multi
+        <cxxflags>"-std=c++11"
+        <cxxflags>"-Wall"
+    : default-build
+        <link>static
+    ;
+
+
+lib boost_system : : <name>boost_system <link>static ;
+
+lib zlib : : <name>z <link>static ;
+
+lib snappy :
+        [ glob vendor/snappy/*.cc : vendor/snappy/*-test.cc vendor/snappy/*_unittest.cc ]
+    : : :
+        <include>vendor/snappy/
+    ;
+
+lib synkafka :
+        [ glob src/*.cpp ]
+        snappy
+        zlib
+        boost_system
+    :
+        <include>vendor/spdlog/include
+    : :
+        <include>src
+        <include>vendor/spdlog/include
+    ;
+
+# testing
+import testing ;
+
+lib gtest :
+        [ glob vendor/gtest/src/*.cc ]
+    :
+        <include>vendor/gtest/include
+        <include>vendor/gtest
+    : :
+        <include>vendor/gtest/include
+    ;
+
+unit-test test :
+        [ glob tests/*.cpp ]
+        [ glob tests/protocol/*.cpp ]
+        gtest
+        synkafka
+    : :
+    ;
+
+exe func_test_exe :
+        [ glob tests/functional/*.cpp ]
+        gtest
+        synkafka
+    ;
+
+import notfile ;
+
+notfile func_test : @run_functional : func_test_exe ;
+actions run_functional
+{
+    ./tests/functional/run.py
+}
+
+explicit gtest test func_test_exe func_test ;
