@@ -271,29 +271,29 @@ TEST_F(BrokerTest, MetadataRequest)
 
     std::vector<std::string> broker_list;
     for (auto& broker : resp.brokers) {
-    	// Rebuild the broker list from the fetched meta so we can normalise ordering
-    	// which is undefined, rely on our test config always assigning same IP and port in ascending order
-    	broker_list.push_back(broker.host + ":" + std::to_string(broker.port) + ":" + std::to_string(broker.node_id));
+        // Rebuild the broker list from the fetched meta so we can normalise ordering
+        // which is undefined, rely on our test config always assigning same IP and port in ascending order
+        broker_list.push_back(broker.host + ":" + std::to_string(broker.port) + ":" + std::to_string(broker.node_id));
     }
 
     std::sort(broker_list.begin(), broker_list.end());
 
-	// Rely on our test setup assigning node id based on port
-	EXPECT_EQ(get_env_string("KAFKA_1_HOST")
-				+ ":" + std::to_string(get_env_int("KAFKA_1_PORT"))
-				+ ":" + std::to_string(get_env_int("KAFKA_1_PORT"))
-			 ,broker_list[0]
-			 );
-   	EXPECT_EQ(get_env_string("KAFKA_2_HOST")
-				+ ":" + std::to_string(get_env_int("KAFKA_2_PORT"))
-				+ ":" + std::to_string(get_env_int("KAFKA_2_PORT"))
-			 ,broker_list[1]
-			 );
-   	EXPECT_EQ(get_env_string("KAFKA_3_HOST")
-				+ ":" + std::to_string(get_env_int("KAFKA_3_PORT"))
-				+ ":" + std::to_string(get_env_int("KAFKA_3_PORT"))
-			 ,broker_list[2]
-			 );
+    // Rely on our test setup assigning node id based on port
+    EXPECT_EQ(get_env_string("KAFKA_1_HOST")
+                + ":" + std::to_string(get_env_int("KAFKA_1_PORT"))
+                + ":" + std::to_string(get_env_int("KAFKA_1_PORT"))
+             ,broker_list[0]
+             );
+       EXPECT_EQ(get_env_string("KAFKA_2_HOST")
+                + ":" + std::to_string(get_env_int("KAFKA_2_PORT"))
+                + ":" + std::to_string(get_env_int("KAFKA_2_PORT"))
+             ,broker_list[1]
+             );
+       EXPECT_EQ(get_env_string("KAFKA_3_HOST")
+                + ":" + std::to_string(get_env_int("KAFKA_3_PORT"))
+                + ":" + std::to_string(get_env_int("KAFKA_3_PORT"))
+             ,broker_list[2]
+             );
 
     // Expect one topic called test with 8 partitions...
     EXPECT_EQ(1ul, resp.topics.size());
@@ -323,23 +323,23 @@ TEST_F(BrokerTest, ProduceBatchNonLeader)
 TEST_F(BrokerTest, ProduceBatchNonReplica)
 {
     ASSERT_NO_FATAL_FAILURE(SetUpProduce());
-	test_connect_and_send_message_set(*test_0_not_replica_, 0, kafka_error::UnknownTopicOrPartition);
+    test_connect_and_send_message_set(*test_0_not_replica_, 0, kafka_error::UnknownTopicOrPartition);
 }
 
 TEST_F(BrokerTest, ProduceBatchGZIP)
 {
     ASSERT_NO_FATAL_FAILURE(SetUpProduce());
-	ms_->push("Hello World. This is extra message for GZIP batch", "");
-	ms_->set_compression(COMP_GZIP);
-	test_connect_and_send_message_set(*test_0_leader_, 0, kafka_error::NoError);
+    ms_->push("Hello World. This is extra message for GZIP batch", "");
+    ms_->set_compression(COMP_GZIP);
+    test_connect_and_send_message_set(*test_0_leader_, 0, kafka_error::NoError);
 }
 
 TEST_F(BrokerTest, ProduceBatchSnappy)
 {
     ASSERT_NO_FATAL_FAILURE(SetUpProduce());
-	ms_->push("Hello World. This is extra message for Snappy batch", "");
-	ms_->set_compression(COMP_Snappy);
-	test_connect_and_send_message_set(*test_0_leader_, 0, kafka_error::NoError);
+    ms_->push("Hello World. This is extra message for Snappy batch", "");
+    ms_->set_compression(COMP_Snappy);
+    test_connect_and_send_message_set(*test_0_leader_, 0, kafka_error::NoError);
 }
 
 TEST_F(BrokerTest, ProduceBatchPipelined)

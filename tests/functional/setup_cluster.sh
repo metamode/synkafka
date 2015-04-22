@@ -11,14 +11,14 @@ cd tests/functional
 
 command -v boot2docker >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-	$(boot2docker shellinit)
+    $(boot2docker shellinit)
 fi
 
 export COMPOSE_PROJECT_NAME=synkafka
 
 if [ -e ./docker-compose-local.yml ]; then
-	echo "Using docker-compose-local.yml"
-	export COMPOSE_FILE=./docker-compose-local.yml ;
+    echo "Using docker-compose-local.yml"
+    export COMPOSE_FILE=./docker-compose-local.yml ;
 fi
 
 # kill containers if they are up ungraciously as they take a while to do graceful termination and we don't care
@@ -30,5 +30,5 @@ docker-compose up -d
 
 # Create test partitions (if test topic doesn't already exist - descirber reutns nothing if it doesn't)
 if [ -z "$(./kafka-topics.sh --describe --topic test)" ]; then
-	./kafka-topics.sh --create --topic "test" --partitions 8 --replication-factor 2
+    ./kafka-topics.sh --create --topic "test" --partitions 8 --replication-factor 2
 fi

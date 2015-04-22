@@ -22,12 +22,12 @@ env_vars = ["LOG_LEVEL=DEBUG"]
 broker_num = 0;
 
 for node in cluster_config:
-	match = re.match('^kafka(\d+)', node)
-	if match:
-		node_idx = match.group(1)
-		env_vars.append('SYNKAFKA_FUNC_KAFKA_'+node_idx+'_HOST='+cluster_config[node]['environment']['KAFKA_ADVERTISED_HOST_NAME'])
-		env_vars.append('SYNKAFKA_FUNC_KAFKA_'+node_idx+'_PORT='+cluster_config[node]['ports'][0].split(':')[0])
-		broker_num += 1
+    match = re.match('^kafka(\d+)', node)
+    if match:
+        node_idx = match.group(1)
+        env_vars.append('SYNKAFKA_FUNC_KAFKA_'+node_idx+'_HOST='+cluster_config[node]['environment']['KAFKA_ADVERTISED_HOST_NAME'])
+        env_vars.append('SYNKAFKA_FUNC_KAFKA_'+node_idx+'_PORT='+cluster_config[node]['ports'][0].split(':')[0])
+        broker_num += 1
 
 env_vars.append('SYNKAFKA_FUNC_KAFKA_BROKER_NUM='+str(broker_num))
 
@@ -39,14 +39,14 @@ gdb = False
 cmd = './build-debug/tests/functional/synkafka_func_test ' + ' ' + args
 
 if gdb:
-	argpfx = '--args ' if args else ''
-	cmd = 'gdb --ex run ' + argpfx + cmd
+    argpfx = '--args ' if args else ''
+    cmd = 'gdb --ex run ' + argpfx + cmd
 
 print "RUNNING: " + cmd
 
 # recompile debug buid if needed to make it single call for debugging cycle in functional tests
 rc = call('tup ./build-debug', shell=True);
 if rc:
-	exit(rc)
+    exit(rc)
 
 call(' '.join(env_vars) + ' ' +cmd, shell=True);
