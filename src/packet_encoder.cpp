@@ -71,7 +71,7 @@ void PacketEncoder::io(std::string& value)
 void PacketEncoder::io(slice& value)
 {
     if (!ok()) return;
-    if (value.size() > std::numeric_limits<int16_t>::max()) {
+    if (value.size() > static_cast<size_t>(std::numeric_limits<int16_t>::max())) {
         set_err(ERR_INVALID_VALUE)
             << "String value was longer than int16 prefix allows";
         return;
@@ -115,7 +115,7 @@ void PacketEncoder::io_bytes(slice& value, CompressionType ctype)
     {
     case COMP_None:
         {
-            if (value.size() > std::numeric_limits<int32_t>::max()) {
+            if (value.size() > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
                 set_err(ERR_INVALID_VALUE)
                      << "Bytes value was longer than int32 prefix allows";
                 return;
