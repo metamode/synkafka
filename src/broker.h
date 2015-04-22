@@ -14,10 +14,10 @@
 #include "log.h"
 #include "rpc.h"
 
+namespace synkafka {
+
 using boost::asio::ip::tcp;
 using boost::system::error_code;
-
-namespace synkafka {
 
 /**
  * The main client interface for talking to a kafka broker

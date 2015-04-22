@@ -80,9 +80,9 @@ void ProducerClient::set_required_acks(int16_t acks)
     required_acks_ = acks;
 }
 
-void ProducerClient::set_client_id(const std::string& client_id)
+void ProducerClient::set_client_id(std::string client_id)
 {
-    client_id_ = client_id;
+    client_id_ = std::move(client_id);
 }
 
 std::error_code ProducerClient::check_topic_partition_leader_available(const std::string& topic, int32_t partition_id)
@@ -498,42 +498,20 @@ std::string ProducerClient::debug_dump_meta()
 
 std::deque<proto::Broker> ProducerClient::string_to_brokers(const std::string& brokers)
 {
-    std::string host_string, port_string;
     std::deque<proto::Broker> brokers_out;
+    std::istringstream brokers_stream(brokers);
+    std::string broker;
 
-    bool in_host = true;
-
-    for (auto& ch : brokers) {
-        if (ch == ':') {
-            in_host = false;
-        } else if (ch == ',') {
-            in_host = true;
-
-            int32_t port = 9092;
-            if (!port_string.empty()) {
-                port = atoi(port_string.c_str());
-            }
-
-            brokers_out.push_back({0, host_string, port});
-
-            host_string = "";
-            port_string = "";
-        } else {
-            if (in_host) {
-                host_string += ch;
-            } else {
-                port_string += ch;
-            }
+    while(std::getline(brokers_stream, broker, ',')) {
+        std::istringstream broker_stream(broker);
+        std::string host, port;
+        std::getline(broker_stream, host, ':');
+        std::getline(broker_stream, port);
+        if(port.empty()) {
+            port = "9092";
         }
+        brokers_out.push_back({0, host, std::stoi(port)});
     }
-
-    int32_t port = 9092;
-    if (!port_string.empty()) {
-        port = atoi(port_string.c_str());
-    }
-
-    brokers_out.push_back({0, host_string, port});
-
 
     return brokers_out;
 }

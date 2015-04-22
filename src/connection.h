@@ -8,11 +8,11 @@
 #include <boost/asio.hpp>
 #include <boost/asio/coroutine.hpp>
 
-using boost::asio::ip::tcp;
-using boost::system::error_code;
-
 namespace synkafka
 {
+
+using boost::asio::ip::tcp;
+using boost::system::error_code;
 
 // Connection manages process of (blocking, multithreaded) connect of a single tcp socket
 // with timeout

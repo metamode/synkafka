@@ -71,7 +71,7 @@ public:
     // Sent to kafka with each request see
     // https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-Requests
     // Defaults to "synkafka_client"
-    void set_client_id(const std::string& client_id);
+    void set_client_id(std::string client_id);
 
     // Check if we have a known leader and are able to connect to it
     // for a given topic partition.

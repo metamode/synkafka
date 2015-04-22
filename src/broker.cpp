@@ -8,9 +8,6 @@
 #include "broker.h"
 #include "log.h"
 
-using boost::asio::ip::tcp;
-using boost::system::error_code;
-
 namespace synkafka {
 
 std::error_code std_from_boost_ec(error_code ec)

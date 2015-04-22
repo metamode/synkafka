@@ -14,17 +14,17 @@
 #include "packet.h"
 #include "log.h"
 
-using boost::asio::ip::tcp;
-using boost::system::error_code;
-
 namespace synkafka
 {
+
+using boost::asio::ip::tcp;
+using boost::system::error_code;
 
 class RPC
 {
 public:
     RPC() = default;
-    RPC(int16_t api_key, std::unique_ptr<PacketEncoder> encoder, const slice& client_id);
+    RPC(int16_t api_key, std::unique_ptr<PacketEncoder> encoder, slice client_id);
 
     void set_seq(int32_t seq);
     int32_t get_seq() const;
@@ -124,7 +124,7 @@ public:
 
     virtual const std::string& queue_type() const override
     {
-        static const std::string& t = "SendQueue";
+        static const std::string t = "SendQueue";
         return t;
     }
 
@@ -145,7 +145,7 @@ public:
 
     virtual const std::string& queue_type() const override
     {
-        static const std::string& t = "RecvQueue";
+        static const std::string t = "RecvQueue";
         return t;
     }
 

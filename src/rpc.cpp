@@ -15,10 +15,10 @@ using boost::system::error_code;
 namespace synkafka
 {
 
-RPC::RPC(int16_t api_key, std::unique_ptr<PacketEncoder> encoder, const slice& client_id)
+RPC::RPC(int16_t api_key, std::unique_ptr<PacketEncoder> encoder, slice client_id)
     :seq_(0)
     ,api_key_(api_key)
-    ,client_id_(client_id)
+    ,client_id_(std::move(client_id))
     ,header_encoder_(nullptr)
     ,encoder_(std::move(encoder))
     ,response_buffer_(new buffer_t(1024))
@@ -91,14 +91,14 @@ void RPC::resolve()
 }
 
 RPCQueue::Impl::Impl(Connection conn, rpc_success_handler_t on_success)
-    :conn_(conn)
+    :conn_(std::move(conn))
     ,q_()
     ,next_seq_(0)
-    ,on_success_(on_success)
+    ,on_success_(std::move(on_success))
 {}
 
 RPCQueue::RPCQueue(Connection conn, rpc_success_handler_t on_success)
-    :pimpl_(new Impl(conn, on_success))
+    :pimpl_(new Impl(std::move(conn), std::move(on_success)))
 {}
 
 void RPCQueue::push(std::unique_ptr<RPC> rpc)
