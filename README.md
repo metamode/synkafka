@@ -33,22 +33,27 @@ We do take care to take advantage of Kafka's pipelining in the protocol though s
 
  - boost (tested with 1.58 somewhat older will probably work)
  - boost build
- - recentish gcc (tested with 4.9.2) (uses `-std=c++11 -stdlib=libc++`)
+ - recentish gcc (tested with 4.9.2) (uses `-std=c++11`)
  - probably other things to have working build chain
 
 This library aims to build statically with vendored dependencies mostly.
 
 That said some dependencies were more trouble than they are worth to vendor and build as part of project's build system so
-we currently assume the following are installed:
+we currently assume the following are installed in system search paths:
 
  - zlib (tested with 1.2.8, linked statically)
  - boost::asio (headers only but expected in system include path)
- - boost::system
+ - boost::system (linked statically)
 
 === OS X
 
 We tested build only with GCC on OS X (long story), boost + gcc on OS X can be set up as described in
-https://schwartzmeyer.com/2014/04/19/boost-with-gcc-on-os-x/
+https://schwartzmeyer.com/2014/04/19/boost-with-gcc-on-os-x/.
+
+Note: if you try building this lib with GCC but using homebrew boost or similar, you will run into problems (incomprehensible segfaults)
+since boost built against libc++ (which it is deafult on OS X) is not binary compatible with libstdc++. For example
+when `boost::system::error_code::message()` is called which returns a `std::string` you get segfault since boost is returning
+a libc++ `std::string` and our code is linking with libstdc++ which has a different string implementation...
 
 Clang/libc++ should work just fine but we specifically target gcc for compatibility with other environments.
 
