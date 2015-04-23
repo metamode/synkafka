@@ -10,11 +10,6 @@
 
 namespace synkafka {
 
-std::error_code std_from_boost_ec(error_code ec)
-{
-    return std::make_error_code(static_cast<std::errc>(ec.value()));
-}
-
 Broker::Broker(boost::asio::io_service& io_service, const std::string& host, int32_t port, const std::string& client_id)
     :client_id_(client_id)
     ,identity_({0, host, port})
@@ -47,7 +42,15 @@ std::future<PacketDecoder> Broker::call(int16_t api_key, std::unique_ptr<PacketE
 
 std::error_code Broker::connect()
 {
-    return std_from_boost_ec(conn_.connect());
+    auto boost_ec = conn_.connect();
+    if (boost_ec) {
+        // Treat all errors in connect as network failures.
+        // this might maks some very rare conditions but it's semantically the same
+        // thing to client and provides convenient way for them to tell if operations
+        // failed for kafka-specific reasons or general transport failure.
+        return make_error_code(synkafka_error::network_fail);
+    }
+    return std::error_code();
 }
 
 

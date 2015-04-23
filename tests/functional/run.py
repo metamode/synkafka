@@ -31,9 +31,15 @@ for node in cluster_config:
 
 env_vars.append('SYNKAFKA_FUNC_KAFKA_BROKER_NUM='+str(broker_num))
 
+
+# recompile debug buid if needed to make it single call for debugging cycle in functional tests
+rc = call('b2 func_test debug', shell=True);
+if rc:
+    exit(rc)
+
 args = ' '.join(sys.argv[1:]).strip()
 
-cmd = './bin/darwin-4.9.2/debug/link-static/threading-multi/func_test ' + ' ' + args
+cmd = './bin/func_test_exe ' + ' ' + args
 
 print "RUNNING: " + cmd
 

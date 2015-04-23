@@ -1,8 +1,7 @@
 project synkafka
     : requirements
         <threading>multi
-        <cxxflags>"-std=c++11"
-        <cxxflags>"-Wall"
+        <cxxflags>"-std=c++11 -Wall -Werror"
     : default-build
         <link>static
     ;
@@ -14,7 +13,10 @@ lib zlib : : <name>z <link>static ;
 
 lib snappy :
         [ glob vendor/snappy/*.cc : vendor/snappy/*-test.cc vendor/snappy/*_unittest.cc ]
-    : : :
+    : :
+        <cxxflags>"-Wno-sign-compare"
+        <cxxflags>"-Wno-unused-function"
+    :
         <include>vendor/snappy/
     ;
 
@@ -56,12 +58,6 @@ exe func_test_exe :
         synkafka
     ;
 
-import notfile ;
+install func_test : func_test_exe : <location>./bin ;
 
-notfile func_test : @run_functional : func_test_exe ;
-actions run_functional
-{
-    ./tests/functional/run.py
-}
-
-explicit gtest test func_test_exe func_test ;
+explicit gtest test func_test func_test_exe ;

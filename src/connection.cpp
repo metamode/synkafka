@@ -159,6 +159,7 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
 
             if (ec) {
                 // Error connecting. close socket and try again on next iteration
+                auto str = ec.message();
                 log()->debug() << *this << "coroutine(): async connect failed: " << ec.message();
                 pimpl_->socket_.close();
                 ++endpoint_iterator;

@@ -11,7 +11,7 @@ This library is **incomplete** and potentially **slow**.
 It's purpose is as a low-level, simplistic implementation of the Kafka 0.8 (producer) protocol which allows
 specific use-cases more control over how they produce and their transactional/error handling semantics.
 
-The motivating case is wanting to write a [Facebook Scribe](https://github.com/facebookarchive/scribe) Store that writes to Kafka cluster in a similar way to how NetworkStore write to an upstream Scribe server. In particular, the common case of using a BufferStore to write to upstream until upstream fails, spool to disk until upstream is back, replay from disk once upstream is back and finally resume live sending. 
+The motivating case is wanting to write a [Facebook Scribe](https://github.com/facebookarchive/scribe) Store that writes to Kafka cluster in a similar way to how NetworkStore write to an upstream Scribe server. In particular, the common case of using a BufferStore to write to upstream until upstream fails, spool to disk until upstream is back, replay from disk once upstream is back and finally resume live sending.
 
 This is very hard to achieve with an asynchronous API like librdkafka where you have no visibility into upstream nodes availability, and can only handle failures per-message and not reason about a whole partition's availability in general.
 
@@ -31,32 +31,38 @@ We do take care to take advantage of Kafka's pipelining in the protocol though s
 
 == Dependencies
 
- - build system is [tup](http://gittup.org/tup/) as it is simple and fast. 
+ - boost (tested with 1.58 somewhat older will probably work)
+ - boost build
  - recentish gcc (tested with 4.9.2) (uses `-std=c++11 -stdlib=libc++`)
  - probably other things to have working build chain
 
-This library aims to build statically with vendored dependencies mostly. 
+This library aims to build statically with vendored dependencies mostly.
 
 That said some dependencies were more trouble than they are worth to vendor and build as part of project's build system so
 we currently assume the following are installed:
- 
- - zlib (tested with 1.2.8)
- - boos::asio (headers only but expected in system include path)
+
+ - zlib (tested with 1.2.8, linked statically)
+ - boost::asio (headers only but expected in system include path)
  - boost::system
+
+=== OS X
+
+We tested build only with GCC on OS X (long story), boost + gcc on OS X can be set up as described in
+https://schwartzmeyer.com/2014/04/19/boost-with-gcc-on-os-x/
+
+Clang/libc++ should work just fine but we specifically target gcc for compatibility with other environments.
 
 == Building
 
 Clone repo and cd into repo root. From project root dir run:
 
-`tup ./build-debug`
-
-or
-
-`tup ./build-release`
+`b2 release` or just `b2` to build with debugging symbols.
 
 == Running Tests
 
-Build process above will automatically run unit tests.
+To build and run unit test use:
+
+`b2 test` or `b2 release test`
 
 To run the included functional tests against a local kafka cluster, look at the notes in `./tests/functional/setup_cluster.sh`. This should be run form project root once pre-requisites are met.
 
@@ -68,13 +74,13 @@ It must be run before each functional testing session, although individual tests
 
 Once cluster is up, you can run functional tests with:
 
-`$ ./tests/functional/run.py` 
+`./tests/functional/run.py`
 
 This should be run from the project root and will re-compile debug build automatically if any changes were found.
 
 Runner uses gtest so you can pass normal gtest command options to it, for example:
 
-`$ ./tests/functional/run.py --gtest_filter=ProducerClientTest.*`
+`./tests/functional/run.py --gtest_filter=ProducerClientTest.*`
 
 == Usage
 
