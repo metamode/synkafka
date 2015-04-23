@@ -1,7 +1,9 @@
 project synkafka
     : requirements
         <threading>multi
-        <cxxflags>"-std=c++11 -Wall -Werror"
+        <cxxflags>"-Wall"
+        <cxxflags>"-std=c++11"
+        <cxxflags>"-Werror"
     : default-build
         <link>static
     ;
