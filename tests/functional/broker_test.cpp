@@ -8,7 +8,6 @@
 #include <thread>
 
 #include <boost/asio.hpp>
-#include <boost/shared_ptr.hpp>
 
 #include "broker.h"
 #include "connection.h"
@@ -58,7 +57,7 @@ protected:
     void SetUpProduce()
     {
         // First we need to get meta data to find out which broker to produce to
-        boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
+        std::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
 
         auto err = b->connect();
         ASSERT_FALSE(err);
@@ -122,7 +121,7 @@ protected:
                                           ,int num_batches_in_pipeline = 1
                                           )
     {
-        boost::shared_ptr<Broker> b(new Broker(io_service_, broker.host, broker.port, "test"));
+        std::shared_ptr<Broker> b(new Broker(io_service_, broker.host, broker.port, "test"));
 
         auto err = b->connect();
         ASSERT_FALSE(err);
@@ -254,7 +253,7 @@ TEST_F(BrokerTest, ConnectionWorksMultiThreaded)
 
 TEST_F(BrokerTest, MetadataRequest)
 {
-    boost::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
+    std::shared_ptr<Broker> b(new Broker(io_service_, get_env_string("KAFKA_1_HOST"), get_env_int("KAFKA_1_PORT"), "test"));
 
     auto err = b->connect();
     ASSERT_FALSE(err);
@@ -368,7 +367,7 @@ TEST_F(BrokerTest, ProduceBatchPipelined)
 TEST_F(BrokerTest, NoClosedBrokerSegfault)
 {
     // Connect to unroutable IP
-    boost::shared_ptr<Broker> b(new Broker(io_service_, "192.0.2.0", get_env_int("KAFKA_1_PORT"), "test"));
+    std::shared_ptr<Broker> b(new Broker(io_service_, "192.0.2.0", get_env_int("KAFKA_1_PORT"), "test"));
 
     b->set_connect_timeout(10);
 

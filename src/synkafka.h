@@ -11,7 +11,6 @@
 #include <map>
 
 #include <boost/asio.hpp>
-#include <boost/shared_ptr.hpp>
 #include <boost/core/noncopyable.hpp>
 
 #include "broker.h"
@@ -127,11 +126,11 @@ private:
     struct BrokerContainer
     {
         proto::Broker                 config;
-        boost::shared_ptr<Broker>     broker;
+        std::shared_ptr<Broker>     broker;
     };
 
-    boost::shared_ptr<Broker> get_broker_for_partition(const Partition& p, bool refresh_meta = true);
-    void close_broker(boost::shared_ptr<Broker> broker);
+    std::shared_ptr<Broker> get_broker_for_partition(const Partition& p, bool refresh_meta = true);
+    void close_broker(std::shared_ptr<Broker> broker);
     void refresh_meta(int attempts = 0);
 
     // Caller MUST hold lock on mu_

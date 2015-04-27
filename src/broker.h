@@ -7,7 +7,6 @@
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/core/noncopyable.hpp>
-#include <boost/enable_shared_from_this.hpp>
 
 #include "connection.h"
 #include "protocol.h"
@@ -22,8 +21,7 @@ using boost::system::error_code;
 /**
  * The main client interface for talking to a kafka broker
  */
-class Broker : public boost::enable_shared_from_this<Broker>,
-    private boost::noncopyable
+class Broker : private boost::noncopyable
 {
 public:
     // Attempts to connect on startup

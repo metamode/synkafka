@@ -208,7 +208,7 @@ std::error_code ProducerClient::produce(const std::string& topic, int32_t partit
     return make_error_code(synkafka_error::no_error);
 }
 
-boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partition& p, bool refresh_meta)
+std::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partition& p, bool refresh_meta)
 {
     std::unique_lock<std::mutex> lk(mu_);
 
@@ -225,7 +225,7 @@ boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partiti
             return get_broker_for_partition(p, false);
         }
         // Don't know it, return a null ptr to broker
-        return boost::shared_ptr<Broker>(nullptr);
+        return std::shared_ptr<Broker>(nullptr);
     }
 
     // We know that partition, lets find it's broker
@@ -255,7 +255,7 @@ boost::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partiti
     return broker_it->second.broker;
 }
 
-void ProducerClient::close_broker(boost::shared_ptr<Broker> broker)
+void ProducerClient::close_broker(std::shared_ptr<Broker> broker)
 {
     // Failed connection or timeout
     // We should clean up the broker (close it as it's now failed, and reset our pointer so it is removed)
@@ -301,7 +301,7 @@ void ProducerClient::refresh_meta(int attempts)
     }
 
     // Fetch meta data from one connected broker. If there are none, bootstrap from the initial config list
-    boost::shared_ptr<Broker> broker;
+    std::shared_ptr<Broker> broker;
 
     {
         std::lock_guard<std::mutex> lk(mu_);
