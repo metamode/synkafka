@@ -21,4 +21,9 @@ inline shared_buffer_t buffer_from_string(const char* c_str, size_t len)
     return buffer_from_string(str);
 }
 
+inline shared_buffer_t make_shared_buffer(size_t initial_size)
+{
+    return std::make_shared<buffer_t>(initial_size);
+}
+
 }

@@ -15,7 +15,7 @@ namespace synkafka {
 
 PacketDecoder::PacketDecoder(shared_buffer_t buffer)
     : PacketCodec()
-    , buff_(buffer)
+    , buff_(std::move(buffer))
     , decompress_buffs_()
 {
     // Assume whole buffer is full of readable content
@@ -137,7 +137,7 @@ void PacketDecoder::io_bytes(slice& value, CompressionType ctype)
 
         // Create a buffer for output that will live as long as the Decoder so
         // we can return slice into
-        shared_buffer_t buff(new buffer_t(CHUNK_SIZE));
+        auto buff = make_shared_buffer(CHUNK_SIZE);
 
         // Initialize gzip compression
         memset(&strm, 0, sizeof(strm));

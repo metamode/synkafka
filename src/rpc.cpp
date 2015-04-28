@@ -21,7 +21,7 @@ RPC::RPC(int16_t api_key, std::unique_ptr<PacketEncoder> encoder, slice client_i
     ,client_id_(std::move(client_id))
     ,header_encoder_(nullptr)
     ,encoder_(std::move(encoder))
-    ,response_buffer_(new buffer_t(1024))
+    ,response_buffer_(make_shared_buffer(1024))
     ,decoder_(new PacketDecoder(response_buffer_))
     ,response_promise_()
 {}
@@ -98,7 +98,7 @@ RPCQueue::Impl::Impl(Connection conn, rpc_success_handler_t on_success)
 {}
 
 RPCQueue::RPCQueue(Connection conn, rpc_success_handler_t on_success)
-    :pimpl_(new Impl(std::move(conn), std::move(on_success)))
+    :pimpl_(std::make_shared<Impl>(std::move(conn), std::move(on_success)))
 {}
 
 void RPCQueue::push(std::unique_ptr<RPC> rpc)
