@@ -25,7 +25,7 @@ class Broker : private boost::noncopyable
 {
 public:
     // Attempts to connect on startup
-    Broker(boost::asio::io_service& io_service, const std::string& host, int32_t port, const std::string& client_id);
+    Broker(boost::asio::io_service& io_service, std::string host, int32_t port, std::string client_id);
     ~Broker();
 
     std::future<PacketDecoder> call(int16_t api_key, std::unique_ptr<PacketEncoder> request_packet);

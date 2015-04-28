@@ -10,9 +10,9 @@
 
 namespace synkafka {
 
-Broker::Broker(boost::asio::io_service& io_service, const std::string& host, int32_t port, const std::string& client_id)
-    :client_id_(client_id)
-    ,identity_({0, host, port})
+Broker::Broker(boost::asio::io_service& io_service, std::string host, int32_t port, std::string client_id)
+    :client_id_(std::move(client_id))
+    ,identity_({0, std::move(host), port})
     ,conn_(io_service, host, port)
     ,send_q_(conn_, [this](std::unique_ptr<RPC> rpc){ recv_q_.push(std::move(rpc)); })
     ,recv_q_(conn_, nullptr)

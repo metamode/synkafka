@@ -8,8 +8,8 @@ namespace errc = boost::system::errc;
 namespace synkafka
 {
 
-Connection::impl::impl(boost::asio::io_service& io_service, const std::string& host, int32_t port)
-    :dns_query_(host, std::to_string(port))
+Connection::impl::impl(boost::asio::io_service& io_service, std::string host, int32_t port)
+    :dns_query_(std::move(host), std::to_string(port))
     ,socket_(io_service)
     ,strand_(io_service)
     ,resolver_(io_service)
@@ -58,8 +58,8 @@ error_code Connection::impl::close(error_code ec)
     return ec_;
 }
 
-Connection::Connection(boost::asio::io_service& io_service, const std::string& host, int32_t port)
-    :pimpl_(new impl(io_service, host, port), [](impl* impl){ impl->close(); delete impl; })
+Connection::Connection(boost::asio::io_service& io_service, std::string host, int32_t port)
+    :pimpl_(new impl(io_service, std::move(host), port), [](impl* impl){ impl->close(); delete impl; })
 {
 }
 

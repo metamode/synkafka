@@ -19,7 +19,7 @@ using boost::system::error_code;
 class Connection : boost::asio::coroutine
 {
 public:
-    Connection(boost::asio::io_service& io_service, const std::string& host, int32_t port);
+    Connection(boost::asio::io_service& io_service, std::string host, int32_t port);
 
     // Set the timeout for connection, default is 1 second (1000 ms)
     void set_timeout(int32_t milliseconds) { pimpl_->timeout_ms_ = milliseconds; }
@@ -76,7 +76,7 @@ private:
     // copy each time.
     struct impl
     {
-        impl(boost::asio::io_service& io_service, const std::string& host, int32_t port);
+        impl(boost::asio::io_service& io_service, std::string host, int32_t port);
 
         error_code close(error_code ec = error_code());
 
