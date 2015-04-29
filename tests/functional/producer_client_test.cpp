@@ -38,7 +38,7 @@ protected:
     {
     }
 
-    MessageSet make_message_set(size_t n = 10) 
+    MessageSet make_message_set(size_t n = 10)
     {
         MessageSet messages;
 
@@ -130,17 +130,18 @@ protected:
         FILE* pipe = popen(cmd.c_str(), "r");
         std::list<std::string> lines;
 
-        char buf[1024];
+        char buf[4096];
 
         while (!feof(pipe)) {
             // Breaks if messages contain raw binary, but that is an error case anyway - means
-            // out tests wrote junk
-            if (fgets(buf, 1024, pipe) != nullptr) {
+            // our tests wrote junk, also breaks if line is longer that buffer. Oh well just ensure our tests
+            // don't write messages that long...
+            if (fgets(buf, 4096, pipe) != nullptr) {
                 size_t len = strlen(buf);
                 if (len && buf[len-1] == '\n') {
                     --len;
                 }
-                lines.emplace_back(buf, strlen(buf) - 1);
+                lines.emplace_back(buf, len);
             }
         }
 
@@ -291,7 +292,7 @@ TEST_F(ProducerClientTest, ProduceFailover)
     auto ec = client_->produce("test", 0, m);
     ASSERT_FALSE(ec) << ec.message();
 
-    // Figure out which node it went to 
+    // Figure out which node it went to
     int32_t leader_id = 9999;
     ec = client_->check_topic_partition_leader_available("test", 0, &leader_id);
 
@@ -309,12 +310,12 @@ TEST_F(ProducerClientTest, ProduceFailover)
     log()->debug("Disconnecting broker " + broker_name);
     std::system(std::string("cd tests/functional && docker-compose -p synkafka kill " + broker_name).c_str());
 
-    // We should fail to connect on next attempt    
+    // We should fail to connect on next attempt
     ec = client_->produce("test", 0, m);
     EXPECT_FALSE(!ec)
         << "Expected network failure, got: " << ec.message();
 
-    // Then if we keep trying for long enough (say 30 seconds - shorter would fail often on my test setup) 
+    // Then if we keep trying for long enough (say 30 seconds - shorter would fail often on my test setup)
     // we should eventually discover a new broker
     // and be able to continue producing
     EXPECT_TRUE(check_with_retry("test", 0, 30));
@@ -341,7 +342,7 @@ TEST_F(ProducerClientTest, PartitionAvailability)
 
     ASSERT_EQ(kafka_error::UnknownTopicOrPartition, ec);
 
-    
+
     log()->debug("Valid topic, non-existant partition");
     ec = client_->check_topic_partition_leader_available("test", 128);
 

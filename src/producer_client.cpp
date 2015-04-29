@@ -107,7 +107,7 @@ std::error_code ProducerClient::check_topic_partition_leader_available(const std
         return make_error_code(kafka_error::UnknownTopicOrPartition);
     }
 
-    // We got a broker! Try to connect (returns immediately if allready connected)
+    // We got a broker! Try to connect (returns immediately if already connected)
     broker->set_connect_timeout(connect_timeout_);
     auto ec = broker->connect();
 
@@ -139,7 +139,7 @@ std::error_code ProducerClient::produce(const std::string& topic, int32_t partit
         return make_error_code(kafka_error::UnknownTopicOrPartition);
     }
 
-    // We got a broker! Try to connect (returns immediately if allready connected)
+    // We got a broker! Try to connect (returns immediately if already connected)
     broker->set_connect_timeout(connect_timeout_);
     auto ec = broker->connect();
 
@@ -242,13 +242,12 @@ std::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partition
     if (broker_it->second.broker == nullptr
         || broker_it->second.broker->is_closed()) {
         // We have a null broker pointer which means it's not connected yet, create a new instance...
-        // Or it allready fialed and got disconnected internally, so we reset.
-        broker_it->second.broker.reset(new Broker(io_service_
-                                                 ,broker_it->second.config.host
-                                                 ,broker_it->second.config.port
-                                                 ,client_id_
-                                                 )
-                                      );
+        // Or it already failed and got disconnected internally, so we reset.
+        broker_it->second.broker = std::make_shared<Broker>(io_service_
+                                                           ,broker_it->second.config.host
+                                                           ,broker_it->second.config.port
+                                                           ,client_id_
+                                                           );
         broker_it->second.broker->set_node_id(broker_it->first);
     }
 
@@ -288,11 +287,11 @@ void ProducerClient::refresh_meta(int attempts)
     // Get current time that we requested new meta (BEFORE lock)
     auto requested_at = std::chrono::system_clock::now();
 
-    // Now aquire mutex to ensure we are the only thread fetching meta
+    // Now acquire mutex to ensure we are the only thread fetching meta
     // (if we are not only thread then we will block here until other thread returns)
     std::unique_lock<std::mutex> meta_lock(meta_fetch_mu_);
 
-    // We got the lock, double check if someone else completed refresh since we started aquire
+    // We got the lock, double check if someone else completed refresh since we started acquire
     if (last_meta_fetch_ >= requested_at) {
         // Some other thread completed a meta fetch while we were waiting on lock. No need to
         // do it ourselves.
@@ -318,11 +317,11 @@ void ProducerClient::refresh_meta(int attempts)
             // No connected brokers, try each one from config (they are randomly ordered on construction)
             for (auto& cfg : broker_configs_) {
                 // Try creating a broker from this config and see if we can fetch metadata in the timeout
-                broker.reset(new Broker(io_service_
-                                       ,cfg.host
-                                       ,cfg.port
-                                       ,client_id_
-                                       ));
+                broker = std::make_shared<Broker>(io_service_
+                                                 ,cfg.host
+                                                 ,cfg.port
+                                                 ,client_id_
+                                                 );
 
                 broker->set_connect_timeout(connect_timeout_);
                 last_meta_error_ = broker->connect();
@@ -346,7 +345,7 @@ void ProducerClient::refresh_meta(int attempts)
     proto::MetadataResponse resp;
 
     // Re-use connect timeout for meta data since meta fetch is really only an implementation specific step in getting connected to
-    // correct node. This is docuemented in the public API in header file.
+    // correct node. This is documented in the public API in header file.
     std::error_code ec = broker->sync_call(req, resp, connect_timeout_);
 
     if (ec) {

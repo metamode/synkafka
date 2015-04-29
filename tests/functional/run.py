@@ -39,7 +39,7 @@ if rc:
 
 args = ' '.join(sys.argv[1:]).strip()
 
-cmd = './bin/func_test_exe ' + ' ' + args
+cmd = 'lldb -- ./bin/func_test_exe ' + ' ' + args
 
 print "RUNNING: " + cmd
 
