@@ -10,6 +10,9 @@ import os
 import re
 from subprocess import call
 import sys
+import multiprocessing
+
+j = multiprocessing.cpu_count()
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -33,13 +36,13 @@ env_vars.append('SYNKAFKA_FUNC_KAFKA_BROKER_NUM='+str(broker_num))
 
 
 # recompile debug buid if needed to make it single call for debugging cycle in functional tests
-rc = call('b2 func_test debug', shell=True);
+rc = call('b2 -j ' + str(j)+ ' func_test debug', shell=True);
 if rc:
     exit(rc)
 
 args = ' '.join(sys.argv[1:]).strip()
 
-cmd = 'lldb -- ./bin/func_test_exe ' + ' ' + args
+cmd = './bin/func_test_exe ' + ' ' + args
 
 print "RUNNING: " + cmd
 
