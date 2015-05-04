@@ -153,7 +153,7 @@ void RPCQueue::fail_all(std::error_code ec)
     // Make a local copy of the queue since as soon as we fail() RPC the calling
     // thread might destruct the broker from under us which will invalidate pimpl_'s memory
     // so do all the state mutations we need first, and only start failing things after that.
-    std::list<std::unique_ptr<RPC>> local_q;
+    std::deque<std::unique_ptr<RPC>> local_q;
 
     std::swap(pimpl_->q_, local_q);
 
