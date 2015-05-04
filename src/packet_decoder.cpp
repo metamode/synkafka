@@ -4,7 +4,6 @@
 #include <limits>
 #include <iostream>
 
-#include "crc32.h"
 #include "portable_endian.h"
 #include <snappy.h>
 #include <zlib.h>
@@ -243,11 +242,17 @@ void   PacketDecoder::end_crc(size_t field_offset)
     assert(cursor_ > field_offset + sizeof(int32_t));
 
     // Calculate CRC32 on the data in the buffer immediately after field_offset
-    CRC32 crc;
-    crc.add(&buff_->at(field_offset + sizeof(int32_t)), cursor_ - field_offset - sizeof(int32_t));
-    int32_t calculated_crc32 = static_cast<int32_t>(crc.get());
+    // using zlib crc32 since it's faster than boost::crc and we already have zlib dependency
+    auto crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc
+               ,reinterpret_cast<Bytef *>(&buff_->at(field_offset + sizeof(int32_t)))
+               ,cursor_ - field_offset - sizeof(int32_t)
+               );
 
-    // No go back and read actual crc32 and check they match
+    // Kafka proto uses signed...
+    int32_t calculated_crc32 = static_cast<int32_t>(crc);
+
+    // Now go back and read actual crc32 and check they match
     auto current_cursor = cursor_;
     int32_t given_crc32;
 
