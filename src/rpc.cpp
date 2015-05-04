@@ -16,14 +16,14 @@ namespace synkafka
 {
 
 RPC::RPC(int16_t api_key, std::unique_ptr<PacketEncoder> encoder, slice client_id)
-    :seq_(0)
-    ,api_key_(api_key)
-    ,client_id_(std::move(client_id))
-    ,header_encoder_(nullptr)
-    ,encoder_(std::move(encoder))
-    ,response_buffer_(make_shared_buffer(1024))
-    ,decoder_(new PacketDecoder(response_buffer_))
-    ,response_promise_()
+    : seq_(0)
+    , api_key_(api_key)
+    , client_id_(std::move(client_id))
+    , header_encoder_(nullptr)
+    , encoder_(std::move(encoder))
+    , response_buffer_(make_shared_buffer(1024))
+    , decoder_(new PacketDecoder(response_buffer_))
+    , response_promise_()
 {}
 
 void RPC::set_seq(int32_t seq)
@@ -91,10 +91,10 @@ void RPC::resolve()
 }
 
 RPCQueue::Impl::Impl(Connection conn, rpc_success_handler_t on_success)
-    :conn_(std::move(conn))
-    ,q_()
-    ,next_seq_(0)
-    ,on_success_(std::move(on_success))
+    : conn_(std::move(conn))
+    , q_()
+    , next_seq_(0)
+    , on_success_(std::move(on_success))
 {}
 
 RPCQueue::RPCQueue(Connection conn, rpc_success_handler_t on_success)

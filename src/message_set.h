@@ -16,8 +16,8 @@ class MessageSet
 public:
     struct Message
     {
-        slice             key;
-        slice             value;
+        slice           key;
+        slice           value;
         int64_t         offset;
         // Only used internally when reading messages
         CompressionType compression_;
@@ -63,10 +63,10 @@ private:
 
     void message_io(PacketCodec& p, Message& m, CompressionType& compression);
 
-    std::deque<Message>     messages_;
-    size_t                    max_message_size_;
-    CompressionType          compression_;
-    size_t                    encoded_size_;
+    std::deque<Message> messages_;
+    size_t              max_message_size_;
+    CompressionType     compression_;
+    size_t              encoded_size_;
 
     // Any strings we need to keep around to keep slices valid
     std::list<buffer_t>        owned_buffers_;

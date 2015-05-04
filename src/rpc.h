@@ -47,13 +47,13 @@ public:
     void resolve();
 
 private:
-    int32_t                            seq_;
-    int16_t                            api_key_;
-    slice                             client_id_;
-    std::unique_ptr<PacketEncoder>    header_encoder_;
-    std::unique_ptr<PacketEncoder>    encoder_;
+    int32_t                         seq_;
+    int16_t                         api_key_;
+    slice                           client_id_;
+    std::unique_ptr<PacketEncoder>  header_encoder_;
+    std::unique_ptr<PacketEncoder>  encoder_;
     shared_buffer_t                 response_buffer_;
-    std::unique_ptr<PacketDecoder>    decoder_;
+    std::unique_ptr<PacketDecoder>  decoder_;
     std::promise<PacketDecoder>     response_promise_;
 };
 
@@ -79,8 +79,8 @@ public:
 
     // This is the coroutine entry point
     virtual void operator()(error_code ec = error_code()
-                              ,size_t length = 0
-                              ) = 0;
+                           ,size_t length = 0
+                           ) = 0;
 
     void push(std::unique_ptr<RPC> rpc);
 
@@ -101,11 +101,11 @@ protected:
     {
         Impl(Connection conn, rpc_success_handler_t on_success);
 
-        Connection                            conn_;
-        std::deque<std::unique_ptr<RPC>>        q_;
-        int32_t                                next_seq_; // only really needed for send queue but..
-        rpc_success_handler_t                on_success_;
-        boost::asio::coroutine                coro_;
+        Connection                          conn_;
+        std::deque<std::unique_ptr<RPC>>    q_;
+        int32_t                             next_seq_; // only really needed for send queue but..
+        rpc_success_handler_t               on_success_;
+        boost::asio::coroutine              coro_;
     };
 
     std::shared_ptr<Impl> pimpl_;
@@ -119,8 +119,8 @@ public:
     {}
 
     virtual void operator()(error_code ec = error_code()
-                   ,size_t length = 0
-                   ) override;
+                           ,size_t length = 0
+                           ) override;
 
     virtual const std::string& queue_type() const override
     {
@@ -140,8 +140,8 @@ public:
     {}
 
     virtual void operator()(error_code ec = error_code()
-                   ,size_t length = 0
-                   ) override;
+                           ,size_t length = 0
+                           ) override;
 
     virtual const std::string& queue_type() const override
     {

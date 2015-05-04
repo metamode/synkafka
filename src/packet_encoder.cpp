@@ -209,7 +209,8 @@ void PacketEncoder::io_bytes(slice& value, CompressionType ctype)
             snappy::RawCompress(reinterpret_cast<const char *>(value.data())
                                ,value.size()
                                ,reinterpret_cast<char *>(&buff_[0] + cursor_)
-                               ,&output_len);
+                               ,&output_len
+                               );
 
             if (output_len < 1) {
                 set_err(ERR_COMPRESS_FAIL)

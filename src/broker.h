@@ -101,11 +101,11 @@ public:
 
 private:
 
-    std::string                            client_id_;
-    proto::Broker                         identity_;
-    Connection                             conn_;
-    RPCSendQueue                        send_q_;
-    RPCRecvQueue                        recv_q_;
+    std::string     client_id_;
+    proto::Broker   identity_;
+    Connection      conn_;
+    RPCSendQueue    send_q_;
+    RPCRecvQueue    recv_q_;
 };
 
 }

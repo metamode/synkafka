@@ -80,15 +80,15 @@ private:
 
         error_code close(error_code ec = error_code());
 
-        tcp::resolver::query             dns_query_;
+        tcp::resolver::query            dns_query_;
         tcp::socket                     socket_;
         boost::asio::io_service::strand strand_;
-        tcp::resolver                      resolver_;
+        tcp::resolver                   resolver_;
         int32_t                         timeout_ms_;
-        std::mutex                         mu_;
-        std::condition_variable            cv_;
-        ConnectionState                    state_;
-        error_code                         ec_;
+        std::mutex                      mu_;
+        std::condition_variable         cv_;
+        ConnectionState                 state_;
+        error_code                      ec_;
     };
 
     std::shared_ptr<impl> pimpl_;

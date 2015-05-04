@@ -9,15 +9,15 @@ namespace synkafka
 {
 
 Connection::impl::impl(boost::asio::io_service& io_service, std::string host, int32_t port)
-    :dns_query_(std::move(host), std::to_string(port))
-    ,socket_(io_service)
-    ,strand_(io_service)
-    ,resolver_(io_service)
-    ,timeout_ms_(1000)
-    ,mu_()
-    ,cv_()
-    ,state_(STATE_INIT)
-    ,ec_()
+    : dns_query_(std::move(host), std::to_string(port))
+    , socket_(io_service)
+    , strand_(io_service)
+    , resolver_(io_service)
+    , timeout_ms_(1000)
+    , mu_()
+    , cv_()
+    , state_(STATE_INIT)
+    , ec_()
 {}
 
 error_code Connection::impl::close(error_code ec)
@@ -59,7 +59,7 @@ error_code Connection::impl::close(error_code ec)
 }
 
 Connection::Connection(boost::asio::io_service& io_service, std::string host, int32_t port)
-    :pimpl_(new impl(io_service, std::move(host), port), [](impl* impl){ impl->close(); delete impl; })
+    : pimpl_(new impl(io_service, std::move(host), port), [](impl* impl){ impl->close(); delete impl; })
 {
 }
 

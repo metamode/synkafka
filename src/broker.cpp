@@ -11,11 +11,11 @@
 namespace synkafka {
 
 Broker::Broker(boost::asio::io_service& io_service, std::string host, int32_t port, std::string client_id)
-    :client_id_(std::move(client_id))
-    ,identity_({0, host, port}) // intentionally copy host string again
-    ,conn_(io_service, std::move(host), port) // move it here
-    ,send_q_(conn_, [this](std::unique_ptr<RPC> rpc){ recv_q_.push(std::move(rpc)); })
-    ,recv_q_(conn_, nullptr)
+    : client_id_(std::move(client_id))
+    , identity_({0, host, port}) // intentionally copy host string again
+    , conn_(io_service, std::move(host), port) // move it here
+    , send_q_(conn_, [this](std::unique_ptr<RPC> rpc){ recv_q_.push(std::move(rpc)); })
+    , recv_q_(conn_, nullptr)
 {
 }
 
