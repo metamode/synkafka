@@ -31,7 +31,7 @@ public:
     ~ProducerClient();
 
     // Set the timeout in milliseconds sent to kafka to wait for acks.
-    // Default is 10 seconds
+    // Default (below) is 10 seconds
     void set_produce_timeout(int32_t milliseconds);
 
     // Set timeout in milliseconds used when trying to connect to a broker.
@@ -71,6 +71,16 @@ public:
     // https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-Requests
     // Defaults to "synkafka_client"
     void set_client_id(std::string client_id);
+
+private:
+    // Defaults
+    int32_t produce_timeout_                = 10000;
+    int32_t produce_timeout_rtt_allowance_  = 500;
+    int32_t connect_timeout_                = 1000;
+    int16_t required_acks_                  = -1;
+    int32_t retry_attempts_                 = 1;
+
+public:
 
     // Check if we have a known leader and are able to connect to it
     // for a given topic partition.
@@ -136,29 +146,23 @@ private:
     // Caller MUST hold lock on mu_
     std::string debug_dump_meta();
 
-    std::deque<proto::Broker>                         broker_configs_; // Only the brokers that were initially passed as bootstrap - we don't have ids just host/ports
-    std::map<int32_t, BrokerContainer>                brokers_;
-    std::map<Partition, int32_t>                    partition_map_;
-    std::mutex                                        mu_; // protects all internal state - any state reads should be synchronized
+    std::deque<proto::Broker>                           broker_configs_; // Only the brokers that were initially passed as bootstrap - we don't have ids just host/ports
+    std::map<int32_t, BrokerContainer>                  brokers_;
+    std::map<Partition, int32_t>                        partition_map_;
+    std::mutex                                          mu_; // protects all internal state - any state reads should be synchronized
 
     // If multiple threads waiting on meta data ensure only one connects
     // and others wait for it
-    std::mutex                                        meta_fetch_mu_;
-    std::chrono::time_point<std::chrono::system_clock>    last_meta_fetch_;
-    std::error_code                                 last_meta_error_;
+    std::mutex                                          meta_fetch_mu_;
+    std::chrono::time_point<std::chrono::system_clock>  last_meta_fetch_;
+    std::error_code                                     last_meta_error_;
 
-    int32_t                                         produce_timeout_;
-    int32_t                                         produce_timeout_rtt_allowance_;
-    int32_t                                         connect_timeout_;
-    int16_t                                         required_acks_;
-    int32_t                                         retry_attempts_;
+    boost::asio::io_service                             io_service_;
+    std::unique_ptr<boost::asio::io_service::work>      work_;
+    std::vector<std::thread>                            asio_threads_;
+    std::atomic<bool>                                   stopping_;
 
-    boost::asio::io_service                            io_service_;
-    std::auto_ptr<boost::asio::io_service::work>    work_;
-    std::vector<std::thread>                        asio_threads_;
-    std::atomic<bool>                                stopping_;
-
-    std::string                                     client_id_;
+    std::string                                         client_id_;
 };
 
 }
