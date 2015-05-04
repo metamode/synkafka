@@ -102,7 +102,7 @@ protected:
         Impl(Connection conn, rpc_success_handler_t on_success);
 
         Connection                            conn_;
-        std::list<std::unique_ptr<RPC>>        q_;
+        std::deque<std::unique_ptr<RPC>>        q_;
         int32_t                                next_seq_; // only really needed for send queue but..
         rpc_success_handler_t                on_success_;
         boost::asio::coroutine                coro_;
