@@ -180,25 +180,35 @@ std::error_code ProducerClient::produce(const std::string& topic, int32_t partit
         }
     }
 
-       if (ec) {
-           // All Kafka errors here are either transient or related to incorrect metadata
-           // or bad messages. There is really no need to close broker.
+    if (ec) {
+        // All Kafka errors here are either transient or related to incorrect metadata
+        // or bad messages. There is really no need to close broker.
 
-           if (ec == kafka_error::NotLeaderForPartition) {
-               // Reload metadata, we were clearly out of date.
-               // TODO: For now still return the error to client - they can however retry
-               // and it *should* work since we reloaded. If we retied ourselves, we'd
-               // need to keep track of how many times just in case we got stuck in some
-               // leader election loop of hell, we'd also need to verify that refreshing meta
-               // actually worked otherwise we could be stuck in loop. For now just let client
-               // figure that out depending on what makes sense for them. We might need to expose
-               // meta refresh failures in that case?
-               log()->warn("Metadata is stale broker ") << broker->get_config().node_id
-                   << " is not leader for [" << topic << "," << partition_id << "]";
-               refresh_meta();
-           }
-           return ec;
-       }
+        if (ec == kafka_error::NotLeaderForPartition
+            || ec == kafka_error::UnknownTopicOrPartition // if broker returns this then our meta is out of date...
+            || ec == kafka_error::LeaderNotAvailable      // during election, meta is stale but refresh won't help till election is done
+            || ec == kafka_error::ReplicaNotAvailable     // pretty sure this is not even possible from a produce but semantically meta-related
+            ) {
+            // All of these cases indicate our meta-data is out of date.
+            // Instead of reloading it right now (which is likely wasted effort in some cases like)
+            // during leadership election, we simple remove the partition from the mapping
+            // such that next request to produce to it or check availability will result in re-fetch
+            // of meta. This allows client to back-off for certain error types etc. As may be appropriate to them
+            {
+                std::unique_lock<std::mutex> lk(mu_);
+
+                auto partition_it = partition_map_.find(p);
+                if (partition_it != partition_map_.end()) {
+                    partition_map_.erase(partition_it);
+                }
+            }
+
+            log()->warn("Metadata is stale: produce to broker ") << broker->get_config().node_id
+                << " for [" << topic << "," << partition_id << "] returned: " << ec.message();
+
+        }
+        return ec;
+    }
 
     return make_error_code(synkafka_error::no_error);
 }
@@ -216,7 +226,7 @@ std::shared_ptr<Broker> ProducerClient::get_broker_for_partition(const Partition
             // Unlock so that refresh and recursive call can get lock
             lk.unlock();
             this->refresh_meta();
-            // try again, but don't trigger another refetch if we failed
+            // try again, but don't trigger another re-fetch if we failed
             return get_broker_for_partition(p, false);
         }
         // Don't know it, return a null ptr to broker

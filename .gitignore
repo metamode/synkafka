@@ -1,1 +1,2 @@
 bin
+tests/functional/synkafka_func_test_reassign.json

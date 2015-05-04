@@ -278,10 +278,107 @@ TEST_F(ProducerClientTest, ParallelProduce)
     std::cout << "\t> Batches produced: " << batches_produced << ", messages: " << (batch_size * batches_produced) << std::endl;
 }
 
+TEST_F(ProducerClientTest, ProduceRebalance)
+{
+    auto m = make_message_set();
+
+    // Produce one batch to be sure leader is up before
+    auto ec = client_->produce("test", 0, m);
+    ASSERT_FALSE(ec) << ec.message();
+
+    // Figure out which node it went to
+    int32_t leader_id = 9999;
+    ec = client_->check_topic_partition_leader_available("test", 0, &leader_id);
+
+    ASSERT_FALSE(ec) << ec.message();
+    ASSERT_NE(9999, leader_id);
+
+    log()->debug("Leader for (test, 0) before is ") << leader_id;
+
+    // Now force the cluster to rebalance
+    // Have to write new assignment as a JSON file for command...
+    // write a temp file...
+    // Pick first broker that isn't leader (assume we have more than one and the are consecutive from 9091)
+    int32_t new_leader_id = 9091;
+    while (new_leader_id == leader_id) {
+        new_leader_id++;
+    }
+    // Make old leader the secondary (assumes 2 replicas)
+    auto new_replicas = std::to_string(new_leader_id) + "," + std::to_string(leader_id);
+
+    log()->debug("Moving replica set for (test, 0) to [") << new_leader_id << ", " << leader_id << "]";
+
+    std::string reassign_cmd = "cd tests/functional && ./reassign-partitions.sh test 0 "
+        + std::to_string(new_leader_id) + " " + std::to_string(leader_id);
+
+    auto ret = std::system((reassign_cmd + " --execute").c_str());
+
+    ASSERT_EQ(0, ret) << "Partition re-assign command failed";
+
+    // Wait for brokers to switch assignment (it's async)
+    int attempts = 0;
+    bool success = false;
+    do {
+        auto lines = exec(reassign_cmd + " --verify");
+
+        if (lines.size() && lines.back() == "Reassignment of partition [test,0] completed successfully") {
+            success = true;
+            log()->debug("Verified replica move completed after ") << attempts+1 << " attempts";
+            break;
+        }
+
+        ++attempts;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    } while (attempts < 20);
+
+    ASSERT_TRUE(success) << "Failed to reassign or verify that assign worked after " << attempts+1 << " attempts";
+
+    // So kafka even after meta data is updated in Zookeeper still doesn't actually decomission old leader and elect new one
+    // until some time later it seems. Occasionally I've observed that to be several minutes even on my little test cluster
+    // ... which kinda sucks
+    // So best we can do is keep trying to produce for next 5 mins.
+    // UNtil it happens we should still be producing to old leader
+    // once it happens we should get an error (which should internally trigger meta update)
+    // we should then recover from that in a timely way.
+    // If we don't fail to produce to old master in that whole time then test isn't really working as it's not testing
+    // actual reassignment behaviour.
+    attempts = 0;
+    success = false;
+    do {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+
+        auto m2 = make_message_set(1);
+
+        ec = client_->produce("test", 0, m2);
+
+        // Should either succeed (not completed reassignment yet)
+        // or fail with NotLeaderForPartition
+        if (ec) {
+            ASSERT_EQ(kafka_error::NotLeaderForPartition, ec)
+                << "Expected NotLeaderForPartition failure, got: " << ec.message();
+            success = true;
+            break;
+        }
+
+        ++attempts;
+    } while (attempts < 300);
+
+    ASSERT_TRUE(success) << "Failed to complete reassign to new master after " << attempts+1 << " attempts";
+
+    // Then if we keep trying for long enough
+    // we should eventually discover a new broker
+    // and be able to continue producing
+    EXPECT_TRUE(check_with_retry("test", 0, 30));
+
+    // Now produce should work
+    ec = client_->produce("test", 0, m);
+    EXPECT_FALSE(ec) << ec.message();
+}
+
 // Tests that mess with cluster go last.
 // crude but no (sane) amount of sleeping can reliably
 // gaurantee tests running after we fail nodes and bring them back actually pass
-// This gaurnatees nothing either, just makes it more likely in practice that cluster had
+// This guarantees nothing either, just makes it more likely in practice that cluster had
 // time to heal between runs.
 
 TEST_F(ProducerClientTest, ProduceFailover)

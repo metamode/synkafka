@@ -699,16 +699,16 @@ TEST(Protocol, ProduceResponseCodec)
 {
     std::vector<std::tuple<proto::ProduceResponse, slice>> test_cases = {
         std::make_tuple(proto::ProduceResponse{{proto::ProduceResponseTopic{"foo"
-                                                                             ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
-                                                                                 ,proto::ProduceResponsePartition{1, kafka_error::NoError, 145236589}
-                                                                                ,proto::ProduceResponsePartition{2, kafka_error::NoError, 135426589}
-                                                                             }
+                                                                           ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
+                                                                            ,proto::ProduceResponsePartition{1, kafka_error::NoError, 145236589}
+                                                                            ,proto::ProduceResponsePartition{2, kafka_error::NoError, 135426589}
                                                                             }
-                                                ,proto::ProduceResponseTopic{"bar"
-                                                                            ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
-                                                                                ,proto::ProduceResponsePartition{1, kafka_error::NotLeaderForPartition, 0}
-                                                                             }
+                                                                           }
+                                               ,proto::ProduceResponseTopic{"bar"
+                                                                           ,{proto::ProduceResponsePartition{0, kafka_error::NoError, 123456789}
+                                                                            ,proto::ProduceResponsePartition{1, kafka_error::NotLeaderForPartition, 0}
                                                                             }
+                                                                           }
                                                }
                                               }
                         ,slice("\x00\x00\x00\x02" // 2 topics
