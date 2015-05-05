@@ -30,7 +30,7 @@ public:
     // Set the max message size as configured with Kafka for this topic
     // You must have your config in sync between Kafka and here - max message size
     // is not reported in topic metadata and may result in messages being reject if you
-    // set a higher value. Kafka's defaut is 1000000 bytes so that is our default here too.
+    // set a higher value. Kafka's default is 1000000 bytes so that is our default here too.
     void set_max_message_size(size_t max_message_size);
 
     // Push another message onto the set, this will check the message for simple things that
@@ -43,12 +43,12 @@ public:
     // the whole set how large the compressed message will be, we must be conservative and assume that
     // worst case compression and headers.
     // If copy = true, a copy of value and key is made to an internal buffer so the caller doesn't need
-    // to keep slices valid. If if's omitted or set to false explicitly then caller MUST ensure data backing
+    // to keep slices valid. If it's omitted or set to false explicitly then caller MUST ensure data backing
     // slices remains valid until MessageSet is destroyed (or produce() call returns if passed to that).
     std::error_code push(const slice& message, const slice& key, bool copy = false);
     std::error_code push(Message&& m);
 
-    // Allow encode/decode like the primative structs, by the time we get to actually encode
+    // Allow encode/decode like the primitive structs, by the time we get to actually encode
     // it is REQUIRED that the MessageSet is in a valid state (i.e. non empty and not too big).
     // Note friend can't have optional length so this is an implementation function that is called by
     // kafka_proto_io

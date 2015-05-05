@@ -45,7 +45,7 @@ std::error_code Broker::connect()
     auto boost_ec = conn_.connect();
     if (boost_ec) {
         // Treat all errors in connect as network failures.
-        // this might maks some very rare conditions but it's semantically the same
+        // this might mask some very rare conditions but it's semantically the same
         // thing to client and provides convenient way for them to tell if operations
         // failed for kafka-specific reasons or general transport failure.
         return make_error_code(synkafka_error::network_fail);

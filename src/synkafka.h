@@ -25,7 +25,7 @@ public:
 
     // Start a client with list of known brokers as hostname:port[,hostname:port[,...]]
     // If you miss out port for anyone we assume default 9092
-    // Most uses probaly only need one background io thread for networking but increasing it
+    // Most uses probably only need one background io thread for networking but increasing it
     // *might* improve latency/throughput in some situations
     ProducerClient(const std::string& brokers, int num_io_threads = 1);
     ~ProducerClient();
@@ -35,9 +35,9 @@ public:
     void set_produce_timeout(int32_t milliseconds);
 
     // Set timeout in milliseconds used when trying to connect to a broker.
-    // This is used to limit the time waiting for both TCP connection and a response for metadata separatly.
+    // This is used to limit the time waiting for both TCP connection and a response for metadata separately.
     // i.e. it should be long enough for metadata transfer rather than just pure TCP handshake.
-    // It also implies it might in pathalogical case take 2 * this long before we timeout if we connect sucessfully in
+    // It also implies it might in pathological case take 2 * this long before we timeout if we connect successfully in
     // just less than the timeout, and then timeout actually fetching metadata.
     // Default is 1 second
     // Note that we may wait this long for EACH broker configured in
@@ -52,11 +52,11 @@ public:
     // 0 means no retries.
     // There is no delay between retries since it is intended to function in such a way that it will retry with
     // a different broker. Periodic retry is left to the caller to implement.
-    // It is not gauranteed that each retry attempt will be to a different broker (for example if only one broker is known)
+    // It is not guaranteed that each retry attempt will be to a different broker (for example if only one broker is known)
     // Default is 1 retry (i.e. total of 2 attempts to connect/fetch meta)
     void set_retry_attempts(int32_t attempts);
 
-    // Set timeout in milliseconts used to allow for network RTT on top of
+    // Set timeout in milliseconds used to allow for network RTT on top of
     // produce_timeout. This is necessary because Kafka will wait for minimum
     // of produce_timeout for required acks before responding so we need to allow
     // additional time to allow for network traffic or slight delays in kafka due to overload
@@ -96,7 +96,7 @@ public:
     std::error_code check_topic_partition_leader_available(const std::string& topic, int32_t partition_id, int32_t* leader_id);
 
     // Synchronously produce a batch of messages
-    // We assume the messages were already bult using the MessageSet class which validates
+    // We assume the messages were already built using the MessageSet class which validates
     // for known issues like maximum message size.
     // The caller must be configured to set max_message_size on the MessageSet correctly...
     // The returned error_code

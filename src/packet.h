@@ -13,14 +13,14 @@
 namespace synkafka {
 
 /**
- * Basic primative for reading and writing low level protocol primatives
+ * Basic primitive for reading and writing low level protocol primitives
  */
 class PacketCodec
 {
 public:
     typedef enum {ERR_NONE, ERR_MEM, ERR_INVALID_VALUE, ERR_COMPRESS_FAIL, ERR_TRUNCATED, ERR_CHECKSUM_FAIL, ERR_LOGIC} err_t;
 
-    // Methods to read/write primative types
+    // Methods to read/write primitive types
     virtual void io(int8_t& value) = 0;
     virtual void io(int16_t& value) = 0;
     virtual void io(int32_t& value) = 0;
@@ -32,9 +32,9 @@ public:
     virtual void io_bytes(std::string& value, CompressionType ctype) = 0;
 
     // Special helpers to enable writing fields that rely on later data to be correct
-    // Start methods reservce spac ein buffer for final field and return the byte offset
+    // Start methods reserve space in buffer for final field and return the byte offset
     // into the buffer the field exists at.
-    // end_* methods caclulate the value of the field of the bytes between the start and
+    // end_* methods calculate the value of the field of the bytes between the start and
     // current cursor and either write the value to buffer or check and raise error depending
     // on whether packet is reading or writing..
     virtual size_t start_crc() = 0;
