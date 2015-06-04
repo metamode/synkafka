@@ -136,7 +136,7 @@ int safe_strerror(
     int error_code, char *&buffer, std::size_t buffer_size) FMT_NOEXCEPT{
     assert(buffer != 0 && buffer_size != 0);
     int result = 0;
-#if ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE) || __ANDROID__
+#if ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE) || __ANDROID__ || __MACH__
     // XSI-compliant version of strerror_r.
     result = strerror_r(error_code, buffer, buffer_size);
     if (result != 0)
