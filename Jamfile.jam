@@ -29,9 +29,13 @@ lib synkafka :
         boost_system
     :
         <include>vendor/spdlog/include
+        <os>LINUX:<define>_GNU_SOURCE=1
+        <os>MACOSX:<define>_GNU_SOURCE=0
     : :
         <include>src
         <include>vendor/spdlog/include
+        <os>LINUX:<define>_GNU_SOURCE=1
+        <os>MACOSX:<define>_GNU_SOURCE=0
     ;
 
 # testing
