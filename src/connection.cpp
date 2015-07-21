@@ -20,9 +20,14 @@ Connection::impl::impl(boost::asio::io_service& io_service, std::string host, in
     , ec_()
 {}
 
-error_code Connection::impl::close(error_code ec)
+error_code Connection::impl::close(error_code ec, bool lock_held)
 {
-    std::lock_guard<std::mutex> lk(mu_);
+    std::unique_lock<std::mutex> lk(mu_, std::defer_lock);
+
+    if (!lock_held) {
+        // Need to lock ourselves for duration of function
+        lk.lock();
+    }
 
     if (state_ == STATE_CLOSED) {
         return ec_;
@@ -92,8 +97,11 @@ error_code Connection::connect()
                 auto ec = errc::make_error_code(errc::timed_out);
                 // Close with error, this will wake any other threads too
                 log()->debug() << *this << "connect(): timed out: " << ec.message();
-                lk.unlock();
-                return close(ec);
+                // We need to call close without releasing lock though since the connect might have succeeded between our timeout
+                // wait on the CV and here and unlocking explicitly before calling close allows a race where coroutine continues processing
+                // connection and sends RPC on the connection here before we get to close it due to timeout.
+                // So we pass lock_held = true direct to close impl so that it will execute within our current lock scope to update state
+                return pimpl_->close(ec, true);
             }
 
             if (pimpl_->state_ != STATE_CONNECTED) {
@@ -109,7 +117,7 @@ error_code Connection::connect()
 
     case STATE_INIT:
         pimpl_->state_ = STATE_CONNECTING;
-        // unlock so we don't deadlock on recusion
+        // unlock so we don't deadlock on recursion
         lk.unlock();
         log()->debug() << *this << "connect(): starting connect";
         // Trigger actual connection coroutine
@@ -167,6 +175,16 @@ void Connection::operator()(error_code ec, tcp::resolver::iterator endpoint_iter
                 // Connected OK, We are done...
                 {
                     std::lock_guard<std::mutex> lk(pimpl_->mu_);
+                    // Check that we didn't get closed while we were waiting for the lock
+                    // this can happen when our connect cv wait times out just slightly before
+                    // async call returns so that we are waiting on this lock whilst timeout code is closing the connection.
+                    // Continuing blindly leaves us in broken state where we set state back to connected even though we have
+                    // cleaned up socket already.
+                    if (pimpl_->state_ != STATE_CONNECTING) {
+                        // If state changed due to close happening already then just return - other waiters will have been
+                        // notified already
+                        return;
+                    }
                     pimpl_->state_ = STATE_CONNECTED;
                 }
                 log()->debug() << *this << "coroutine(): async connect OK ";

@@ -46,7 +46,9 @@ lib gtest :
     :
         <include>vendor/gtest/include
         <include>vendor/gtest
-    : :
+    :
+        <cxxflags>"-Wno-unused-const-variable"
+    :
         <include>vendor/gtest/include
     ;
 

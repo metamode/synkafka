@@ -363,7 +363,7 @@ TEST_F(BrokerTest, ProduceBatchPipelined)
 // client too.
 
 
-// Recreate segfault bug caused by Producer Client meta fetch allowing RPC call to be attermpted on a closed broker object
+// Recreate segfault bug caused by Producer Client meta fetch allowing RPC call to be attempted on a closed broker object
 TEST_F(BrokerTest, NoClosedBrokerSegfault)
 {
     // Connect to unroutable IP

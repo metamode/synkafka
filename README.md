@@ -12,15 +12,15 @@ It's purpose is as a low-level, simplistic implementation of the Kafka 0.8 produ
 
 The motivating case is wanting to write a [Facebook Scribe](https://github.com/facebookarchive/scribe) Store that writes to Kafka cluster in a similar way to how NetworkStore writes to an upstream Scribe server. In particular, the common case of using a BufferStore to write to upstream until upstream fails, spool to disk until upstream is back, replay from disk once upstream is back and finally resume live sending.
 
-This is very hard to achieve with an asynchronous API like librdkafka where you have no visibility into upstream nodes availability, and can only handle failures per-message and not reason about a whole partition's availability in general.
+This is very hard to achieve with an asynchronous API like librdkafka where you have no visibility into upstream node's availability, and can only handle failures per-message rather than reason about a whole partition's availability in general.
 
 Since Scribe already handles batching and partitioning into topics (and potentially partitions depending on how you configure it),
 we needed a much lower level API where we can make our own trade-offs about batching efficiency vs. simplicity in error handling.
 
 For example we might choose to only produce to a single partition in any produce request such that if that partition is unavailable
-we can fail the KafkaStore and cause a BufferStore to switch to DISCONECTED (disk-spooling) state. Limiting batches to single partition potentially reduces throughput where you have many topics/partitions, but makes Scribe Store's online/offline model sane to work with.
+we can fail the KafkaStore and cause a BufferStore to switch to DISCONECTED (disk-spooling) state. Limiting batches to single partition potentially reduces throughput where you have many topics/partitions, but makes Scribe's BufferStore online/offline model sane to work with.
 
-We do take care to take advantage of Kafka's pipelining though such that multiple stores (assuming configured in separate threads) can be sending batches to same broker in parallel, with only a single broker connection held open by the client.
+We do take care to take advantage of Kafka's pipelining though such that multiple stores (assuming they are configured to run in separate threads) can be sending batches to same broker in parallel, with only a single broker connection held open by the client.
 
 == Limitations
 
@@ -46,14 +46,9 @@ we currently assume the following are installed in system search paths:
 
 === OS X
 
-We tested build only with GCC on OS X (long story), boost + gcc on OS X can be set up as described in
-https://schwartzmeyer.com/2014/04/19/boost-with-gcc-on-os-x/.
+Use [homebrew](http://brew.sh/) to install deps:
 
-Note: if you try building this lib with GCC but using homebrew boost or similar, you will run into problems (incomprehensible segfaults)
-since boost built against clang/libc++ (which is default on OS X) is not binary compatible with libstdc++. MOstly boost is headers only which are fine, but asio relies on `boost::system` which is compiled/linked. When `boost::system::error_code::message()` is called which returns a `std::string` you get segfault since boost is returning
-a libc++ `std::string` and our code is linking with libstdc++ which has a different std::string implementation...
-
-Clang/libc++ should work just fine but we specifically target gcc for compatibility with other environments.
+`brew install boost boost-build zlib`
 
 == Building
 

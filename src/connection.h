@@ -78,7 +78,7 @@ private:
     {
         impl(boost::asio::io_service& io_service, std::string host, int32_t port);
 
-        error_code close(error_code ec = error_code());
+        error_code close(error_code ec = error_code(), bool lock_held = false);
 
         tcp::resolver::query            dns_query_;
         tcp::socket                     socket_;
