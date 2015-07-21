@@ -1,14 +1,14 @@
 # SynKafka: A simple, synchronous C++ producer client API for Apache Kafka =
 
-## Rationale
-
-!! You almost certainly should not use this.
+### You almost certainly should not use this.
 
 If you want a C/C++ Kafka client use [librdkafka](https://github.com/edenhill/librdkafka).
 
 This library is **incomplete** and potentially **slow**.
 
 It's purpose is as a low-level, simplistic implementation of the Kafka 0.8 producer protocol which allows more control over how they produce and their transactional/error handling semantics.
+
+## Rationale
 
 The motivating case is wanting to write a [Facebook Scribe](https://github.com/facebookarchive/scribe) Store that writes to Kafka cluster in a similar way to how NetworkStore writes to an upstream Scribe server. In particular, the common case of using a BufferStore to write to upstream until upstream fails, spool to disk until upstream is back, replay from disk once upstream is back and finally resume live sending.
 
@@ -88,7 +88,7 @@ The public API is intentionally simple, with essentially 2 useful methods and so
 
 Simple example:
 
-```
+```c++
 
 auto client = synkafka::ProducerClient("broker1,broker2:9093");
 
