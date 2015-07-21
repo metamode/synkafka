@@ -1,6 +1,6 @@
-= SynKafka: A simple, synchronous C++ producer client API for Apache Kafka =
+# SynKafka: A simple, synchronous C++ producer client API for Apache Kafka =
 
-== Rationale
+## Rationale
 
 !! You almost certainly should not use this.
 
@@ -22,13 +22,13 @@ we can fail the KafkaStore and cause a BufferStore to switch to DISCONECTED (dis
 
 We do take care to take advantage of Kafka's pipelining though such that multiple stores (assuming they are configured to run in separate threads) can be sending batches to same broker in parallel, with only a single broker connection held open by the client.
 
-== Limitations
+## Limitations
 
  * Only some of the API is implemented currently - only enough to discover where partitions are and produce to them.
  * API is low-level and requires external work (queuing, multi-threading) to get good performance.
  * We did not build this with performance as a primary concern. That said it doesn't have too many pathological design choices. In trivial functional tests running on Quad core/16GB laptop with dockerised 3 node kafka cluster on boot2docker VM, with batches of 1000 ~60 byte messages, we see sending rates of 100-200k messages a second on aggregate across 8 sending threads. That is without any tuning of messages/thread count let alone proper profiling of code. It well exceeds our current requirements so performance has not been optimized further.
 
-== Dependencies
+## Dependencies
 
  - boost (tested with 1.58, somewhat older will probably work)
  - boost build
@@ -44,19 +44,19 @@ we currently assume the following are installed in system search paths:
  - boost::asio (headers only but expected in system include path)
  - boost::system (linked statically)
 
-=== OS X
+### OS X
 
 Use [homebrew](http://brew.sh/) to install deps:
 
 `brew install boost boost-build zlib`
 
-== Building
+## Building
 
 Clone repo and cd into repo root. From project root dir run:
 
 `b2 release` or just `b2` to build with debugging symbols.
 
-== Running Tests
+## Running Tests
 
 To build and run unit test use:
 
@@ -82,7 +82,7 @@ Runner uses gtest so you can pass normal gtest command options to it, for exampl
 
 All tests pass individually however some functional tests that intentionally cause cluster failures do not recover in a deterministic time so despite some generous `sleep()` calls in the tests, can cause subsequent test to fail spuriously when running entire suite.
 
-== Usage
+## Usage
 
 The public API is intentionally simple, with essentially 2 useful methods and some configuration options.
 
