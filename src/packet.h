@@ -58,21 +58,21 @@ public:
 
     bool ok() const { return err_ == ERR_NONE; };
     err_t err() const { return err_; };
-    std::string err_str() const { return err_stream_->str(); };
+    std::string err_str() const { return err_stream_.str(); };
 
     std::stringstream& set_err(err_t error)
     {
         err_ = error;
         // Clear error message stream
-        err_stream_->str("");
-        err_stream_->clear();
+        err_stream_.str("");
+        err_stream_.clear();
 
-        return *err_stream_;
+        return err_stream_;
     }
 
 protected:
     // Protect default constructor as this should only be used derived from
-    PacketCodec() : err_(ERR_NONE), err_stream_(new std::stringstream("")), cursor_(0), size_(0) {}
+    PacketCodec() : err_(ERR_NONE), err_stream_(""), cursor_(0), size_(0) {}
 
     // Called to "increment" cursor
     // takes care of extending size_ if cursor is already at end before update
@@ -85,11 +85,9 @@ protected:
     }
 
     err_t                err_;
-    // Pointer indirection due to gcc "feature":
-    // http://stackoverflow.com/questions/12015899/
-    std::unique_ptr<std::stringstream>     err_stream_;
-    size_t                 cursor_;
-    size_t                size_;
+    std::stringstream    err_stream_;
+    size_t               cursor_;
+    size_t               size_;
 };
 
 class PacketEncoder : public PacketCodec
